@@ -5,6 +5,7 @@ import LoginPage from "./pages/LoginPage";
 import DashboardPage from "./pages/DashboardPage";
 import SettingsPage from "./pages/SettingsPage";
 import PlaceholderPage from "./pages/PlaceholderPage";
+import PipelineStudioPage from "./features/pipelineStudio/PipelineStudioPage";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const user = useAppStore((s) => s.user);
@@ -31,13 +32,7 @@ export default function App() {
         <Route path="/settings" element={<SettingsPage />} />
         <Route
           path="/pipeline-studio"
-          element={
-            <PlaceholderPage
-              title="Pipeline Studio"
-              phase="Phase 2"
-              description="A drag-and-drop canvas where you compose fraud-detection pipelines from configurable stages and algorithms."
-            />
-          }
+          element={<PipelineStudioPage />}
         />
         <Route
           path="/algorithm-library"

@@ -123,20 +123,13 @@ export const NODE_CATALOG: PaletteNodeDef[] = [
     defaultDescription: "Removes duplicate transactions.",
   },
 
-  // FEATURE ENGINEERING
+  // FEATURE ENGINEERING — defType matches algorithm id in /src/data/algorithms.ts
   {
-    type: "feat.feature-selection",
-    label: "Feature Selection",
+    type: "feat.velocity-features",
+    label: "Velocity Features",
     category: "feature",
-    hint: "Choose relevant fields",
-    defaultDescription: "Selects the most predictive feature subset.",
-  },
-  {
-    type: "feat.pca",
-    label: "PCA",
-    category: "feature",
-    hint: "Dimensionality reduction",
-    defaultDescription: "Reduces dimensionality via principal components.",
+    hint: "Rate-of-change signals",
+    defaultDescription: "Derives velocity / rate-of-change features.",
   },
   {
     type: "feat.aggregation-window",
@@ -146,29 +139,63 @@ export const NODE_CATALOG: PaletteNodeDef[] = [
     defaultDescription: "Aggregates values over a rolling time window.",
   },
   {
-    type: "feat.velocity-features",
-    label: "Velocity Features",
+    type: "feat.mutual-information-selection",
+    label: "Mutual Information Selection",
     category: "feature",
-    hint: "Rate-of-change signals",
-    defaultDescription: "Derives velocity / rate-of-change features.",
+    hint: "Rank features by MI",
+    defaultDescription:
+      "Ranks features by mutual information with the fraud label.",
+  },
+  {
+    type: "feat.pca",
+    label: "PCA",
+    category: "feature",
+    hint: "Dimensionality reduction",
+    defaultDescription: "Reduces dimensionality via principal components.",
+  },
+  {
+    type: "feat.chi-square-selection",
+    label: "Chi-Square Selection",
+    category: "feature",
+    hint: "Categorical feature selection",
+    defaultDescription:
+      "Selects categorical features by chi-square independence with the label.",
   },
 
-  // DETECTION (stubbed 2-3 per sub-type)
-  {
-    type: "det.cluster.kmeans",
-    label: "K-Means Clusterer",
-    category: "detection",
-    detectionSubType: "clustering",
-    hint: "Centroid clustering",
-    defaultDescription: "Groups transactions into k centroid-based clusters.",
-  },
+  // DETECTION — defType matches algorithm id in /src/data/algorithms.ts
   {
     type: "det.cluster.dbscan",
-    label: "DBSCAN Clusterer",
+    label: "DBSCAN",
     category: "detection",
     detectionSubType: "clustering",
     hint: "Density clustering",
     defaultDescription: "Density-based clustering for outlier discovery.",
+  },
+  {
+    type: "det.cluster.hdbscan",
+    label: "HDBSCAN",
+    category: "detection",
+    detectionSubType: "clustering",
+    hint: "Variable-density clustering",
+    defaultDescription:
+      "Hierarchical density clustering across varying densities.",
+  },
+  {
+    type: "det.cluster.graph-community",
+    label: "Graph-Based Community Detection",
+    category: "detection",
+    detectionSubType: "clustering",
+    hint: "Network / ring detection",
+    defaultDescription:
+      "Detects communities in an entity graph to expose fraud rings.",
+  },
+  {
+    type: "det.cluster.kmeans",
+    label: "KMeans (baseline)",
+    category: "detection",
+    detectionSubType: "clustering",
+    hint: "Centroid clustering baseline",
+    defaultDescription: "Groups transactions into k centroid-based clusters.",
   },
   {
     type: "det.anomaly.isolation-forest",
@@ -180,7 +207,7 @@ export const NODE_CATALOG: PaletteNodeDef[] = [
   },
   {
     type: "det.anomaly.lof",
-    label: "Local Outlier Factor",
+    label: "Local Outlier Factor (LOF)",
     category: "detection",
     detectionSubType: "anomaly",
     hint: "Density-based anomaly",
@@ -195,20 +222,46 @@ export const NODE_CATALOG: PaletteNodeDef[] = [
     defaultDescription: "Neural reconstruction-error anomaly scorer.",
   },
   {
-    type: "det.class.logistic",
-    label: "Logistic Classifier",
+    type: "det.anomaly.one-class-svm",
+    label: "One-Class SVM",
     category: "detection",
-    detectionSubType: "classification",
-    hint: "Linear model",
-    defaultDescription: "Linear fraud / not-fraud classifier.",
+    detectionSubType: "anomaly",
+    hint: "Kernel boundary anomaly",
+    defaultDescription:
+      "Learns a boundary around normal data; points outside are anomalies.",
   },
   {
-    type: "det.class.gradient-boosted",
-    label: "Gradient-Boosted Trees",
+    type: "det.class.xgboost",
+    label: "XGBoost",
     category: "detection",
     detectionSubType: "classification",
-    hint: "Ensemble trees",
+    hint: "Gradient-boosted trees",
     defaultDescription: "Gradient-boosted tree fraud classifier.",
+  },
+  {
+    type: "det.class.lightgbm",
+    label: "LightGBM",
+    category: "detection",
+    detectionSubType: "classification",
+    hint: "Leaf-wise boosting",
+    defaultDescription:
+      "Leaf-wise gradient boosting; faster than XGBoost on large data.",
+  },
+  {
+    type: "det.class.logistic-regression",
+    label: "Logistic Regression",
+    category: "detection",
+    detectionSubType: "classification",
+    hint: "Explainable baseline",
+    defaultDescription: "Linear fraud / not-fraud classifier (audit-friendly).",
+  },
+  {
+    type: "det.class.random-forest",
+    label: "Random Forest",
+    category: "detection",
+    detectionSubType: "classification",
+    hint: "Bagged trees",
+    defaultDescription: "Bagged decision-tree fraud classifier.",
   },
 
   // OUTPUT

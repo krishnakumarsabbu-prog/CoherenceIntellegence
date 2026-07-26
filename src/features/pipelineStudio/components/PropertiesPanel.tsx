@@ -3,6 +3,12 @@ import { motion } from "framer-motion";
 import { CATEGORY_META, DETECTION_SUBTYPE_LABELS } from "../catalog";
 import { usePipelineStore } from "../pipelineStore";
 import type { PipelineNodeData } from "../types";
+import {
+  ALGORITHM_BY_ID,
+  algorithmsForDetectionSubType,
+  defaultParamsFor,
+  type ParamDef,
+} from "../../../data/algorithms";
 
 interface Props {
   collapsed: boolean;
@@ -72,9 +78,7 @@ function EmptyState() {
             <path d="M12 2a4 4 0 014 4v3h2v12H6V9h2V6a4 4 0 014-4z" />
           </svg>
         </div>
-        <p className="text-sm text-canvas-500 font-medium">
-          No node selected
-        </p>
+        <p className="text-sm text-canvas-500 font-medium">No node selected</p>
         <p className="text-xs text-canvas-400 mt-1 leading-relaxed">
           Select a node on the canvas to view and edit its properties.
         </p>
@@ -99,7 +103,6 @@ function NodeForm({
   const [description, setDescription] = useState(data.description);
   const [notes, setNotes] = useState(data.notes);
 
-  // Re-seed local state when a different node is mounted (key prop handles remount).
   useEffect(() => {
     setLabel(data.label);
     setDescription(data.description);
@@ -110,6 +113,10 @@ function NodeForm({
     if (label.trim() && label !== data.label) onChange({ label: label.trim() });
     else setLabel(data.label);
   };
+
+  const algo = data.algorithmId ? ALGORITHM_BY_ID[data.algorithmId] : undefined;
+  const isDetection = data.category === "detection";
+  const isFeature = data.category === "feature";
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -145,15 +152,38 @@ function NodeForm({
         )}
       </div>
 
-      {/* Configuration placeholder */}
-      <Section title="Configuration" hint="Phase 3">
-        <div className="rounded-md border border-dashed border-canvas-200 bg-canvas-50/50 px-3 py-4 text-center">
-          <p className="text-xs text-canvas-400 leading-relaxed">
-            Algorithm parameters will be configurable here in Phase 3
-            (Algorithm Library).
-          </p>
-        </div>
-      </Section>
+      {/* Algorithm choice for detection nodes */}
+      {isDetection && data.detectionSubType && (
+        <Section title="Algorithm">
+          <AlgorithmSelect
+            subType={data.detectionSubType}
+            currentId={data.algorithmId}
+            onChange={(newAlgoId) => {
+              const newAlgo = ALGORITHM_BY_ID[newAlgoId];
+              onChange({
+                algorithmId: newAlgoId,
+                label: newAlgo?.name ?? data.label,
+                params: defaultParamsFor(newAlgoId),
+              });
+            }}
+          />
+        </Section>
+      )}
+
+      {/* Algorithm parameters */}
+      {algo && (isDetection || isFeature) && (
+        <Section title="Parameters">
+          <ParameterForm
+            params={algo.parameters}
+            values={data.params ?? {}}
+            onChange={(name, value) =>
+              onChange({
+                params: { ...(data.params ?? {}), [name]: value },
+              })
+            }
+          />
+        </Section>
+      )}
 
       {/* Description */}
       <Section title="Description">
@@ -199,27 +229,200 @@ function NodeForm({
   );
 }
 
+function AlgorithmSelect({
+  subType,
+  currentId,
+  onChange,
+}: {
+  subType: "clustering" | "anomaly" | "classification";
+  currentId?: string;
+  onChange: (algoId: string) => void;
+}) {
+  const choices = algorithmsForDetectionSubType(subType);
+  return (
+    <select
+      value={currentId ?? ""}
+      onChange={(e) => onChange(e.target.value)}
+      className="input text-sm"
+    >
+      {!currentId && <option value="">Choose an algorithm…</option>}
+      {choices.map((a) => (
+        <option key={a.id} value={a.id}>
+          {a.name}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function ParameterForm({
+  params,
+  values,
+  onChange,
+}: {
+  params: ParamDef[];
+  values: Record<string, unknown>;
+  onChange: (name: string, value: unknown) => void;
+}) {
+  if (params.length === 0) {
+    return (
+      <p className="text-xs text-canvas-400 italic">
+        This algorithm has no configurable parameters.
+      </p>
+    );
+  }
+  return (
+    <div className="space-y-3">
+      {params.map((p) => (
+        <ParamField
+          key={p.name}
+          def={p}
+          value={values[p.name] ?? p.default}
+          onChange={(v) => onChange(p.name, v)}
+        />
+      ))}
+    </div>
+  );
+}
+
+function ParamField({
+  def,
+  value,
+  onChange,
+}: {
+  def: ParamDef;
+  value: unknown;
+  onChange: (value: unknown) => void;
+}) {
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <label className="text-xs font-medium text-canvas-700">
+          {def.name}
+        </label>
+        <span className="text-[10px] text-canvas-400 bg-canvas-100 px-1 py-0.5 rounded">
+          {def.type}
+        </span>
+      </div>
+
+      {def.type === "enum" && def.options && (
+        <select
+          value={String(value)}
+          onChange={(e) => onChange(e.target.value)}
+          className="input text-xs"
+        >
+          {def.options.map((opt) => (
+            <option key={opt} value={opt}>
+              {opt}
+            </option>
+          ))}
+        </select>
+      )}
+
+      {def.type === "boolean" && (
+        <button
+          type="button"
+          onClick={() => onChange(!value)}
+          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+            value ? "bg-accent-500" : "bg-canvas-300"
+          }`}
+          aria-pressed={Boolean(value)}
+        >
+          <span
+            className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+              value ? "translate-x-4" : "translate-x-0.5"
+            }`}
+          />
+        </button>
+      )}
+
+      {(def.type === "number" || def.type === "integer") && (
+        <NumberField def={def} value={value} onChange={onChange} />
+      )}
+
+      {def.type === "string" && (
+        <input
+          value={String(value)}
+          onChange={(e) => onChange(e.target.value)}
+          className="input text-xs"
+        />
+      )}
+
+      <p className="text-[11px] text-canvas-400 mt-1 leading-relaxed">
+        {def.hint}
+      </p>
+    </div>
+  );
+}
+
+function NumberField({
+  def,
+  value,
+  onChange,
+}: {
+  def: ParamDef;
+  value: unknown;
+  onChange: (value: unknown) => void;
+}) {
+  const num = Number(value);
+  const hasRange =
+    typeof def.min === "number" && typeof def.max === "number";
+  const step = def.step ?? (def.type === "integer" ? 1 : 0.01);
+
+  return (
+    <div>
+      {hasRange ? (
+        <div className="flex items-center gap-2.5">
+          <input
+            type="range"
+            min={def.min}
+            max={def.max}
+            step={step}
+            value={num}
+            onChange={(e) => {
+              const v = Number(e.target.value);
+              onChange(def.type === "integer" ? Math.round(v) : v);
+            }}
+            className="flex-1 accent-accent-500"
+          />
+          <span className="text-xs font-mono text-canvas-700 w-12 text-right tabular-nums">
+            {def.type === "integer" ? Math.round(num) : num}
+          </span>
+        </div>
+      ) : (
+        <input
+          type="number"
+          value={num}
+          step={step}
+          onChange={(e) => {
+            const v = Number(e.target.value);
+            onChange(def.type === "integer" ? Math.round(v) : v);
+          }}
+          className="input text-xs"
+        />
+      )}
+      {hasRange && (
+        <div className="flex justify-between text-[10px] text-canvas-400 mt-0.5">
+          <span>{def.min}</span>
+          <span>{def.max}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Section({
   title,
-  hint,
   children,
 }: {
   title: string;
-  hint?: string;
   children: React.ReactNode;
 }) {
   return (
     <div className="px-4 py-3 border-b border-canvas-100">
-      <div className="flex items-center justify-between mb-2">
-        <h3 className="text-xs font-semibold text-canvas-600 uppercase tracking-wide">
-          {title}
-        </h3>
-        {hint && (
-          <span className="text-[10px] text-canvas-400 bg-canvas-100 px-1.5 py-0.5 rounded">
-            {hint}
-          </span>
-        )}
-      </div>
+      <h3 className="text-xs font-semibold text-canvas-600 uppercase tracking-wide mb-2">
+        {title}
+      </h3>
       {children}
     </div>
   );

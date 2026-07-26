@@ -6,6 +6,7 @@ import DashboardPage from "./pages/DashboardPage";
 import SettingsPage from "./pages/SettingsPage";
 import PlaceholderPage from "./pages/PlaceholderPage";
 import PipelineStudioPage from "./features/pipelineStudio/PipelineStudioPage";
+import AlgorithmLibraryPage from "./pages/AlgorithmLibraryPage";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const user = useAppStore((s) => s.user);
@@ -36,13 +37,7 @@ export default function App() {
         />
         <Route
           path="/algorithm-library"
-          element={
-            <PlaceholderPage
-              title="Algorithm Library"
-              phase="Phase 3"
-              description="Browse, configure, and version the detection algorithms available to drop into your pipelines."
-            />
-          }
+          element={<AlgorithmLibraryPage />}
         />
         <Route
           path="/execution-console"

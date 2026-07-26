@@ -29,6 +29,10 @@ export interface PipelineNodeData {
   defType: string;
   description: string;
   notes: string;
+  /** Algorithm id from /src/data/algorithms.ts; set for feature + detection nodes. */
+  algorithmId?: string;
+  /** Algorithm parameter values, keyed by parameter name. */
+  params?: Record<string, unknown>;
   [key: string]: unknown;
 }
 

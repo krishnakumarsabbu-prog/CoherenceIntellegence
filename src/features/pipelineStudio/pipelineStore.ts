@@ -8,6 +8,10 @@ import {
   type NodeChange,
 } from "@xyflow/react";
 import { NODE_DEF_BY_TYPE } from "./catalog";
+import {
+  algorithmForDefType,
+  defaultParamsFor,
+} from "../../data/algorithms";
 import type {
   PipelineEdge,
   PipelineNode,
@@ -188,6 +192,7 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
     const def = NODE_DEF_BY_TYPE[defType];
     if (!def) return;
     const id = nextId("n");
+    const algo = algorithmForDefType(defType);
     const data: PipelineNodeData = {
       label: def.label,
       category: def.category,
@@ -195,6 +200,8 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
       defType: def.type,
       description: def.defaultDescription ?? "",
       notes: "",
+      algorithmId: algo?.id,
+      params: algo ? defaultParamsFor(algo.id) : undefined,
     };
     const node: PipelineNode = {
       id,

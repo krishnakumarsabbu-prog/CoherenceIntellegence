@@ -1,9 +1,8 @@
-INFO:     Started server process [456]
+INFO:     Started server process [432]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
 INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
-INFO:     127.0.0.1:42182 - "GET /health HTTP/1.1" 200 OK
-INFO:     127.0.0.1:42186 - "POST /pipelines/test-pipe-1/execute HTTP/1.1" 200 OK
-INFO:     127.0.0.1:42200 - "WebSocket /ws/executions/exec-155edb9f481e" [accepted]
-INFO:     connection open
-INFO:     127.0.0.1:46126 - "GET /executions?limit=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:40050 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:40060 - "GET /algorithms/feature-engineering HTTP/1.1" 200 OK
+INFO:     127.0.0.1:40066 - "GET /algorithms/feat.pca HTTP/1.1" 200 OK
+INFO:     127.0.0.1:45800 - "GET /algorithms/clustering HTTP/1.1" 200 OK

@@ -7,11 +7,7 @@ import {
   type EdgeChange,
   type NodeChange,
 } from "@xyflow/react";
-import { NODE_DEF_BY_TYPE } from "./catalog";
-import {
-  algorithmForDefType,
-  defaultParamsFor,
-} from "../../data/algorithms";
+import { NODE_DEF_BY_TYPE, CATEGORY_META } from "./catalog";
 import type {
   PipelineEdge,
   PipelineNode,
@@ -192,16 +188,23 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
     const def = NODE_DEF_BY_TYPE[defType];
     if (!def) return;
     const id = nextId("n");
-    const algo = algorithmForDefType(defType);
+    const requiresAlgorithm =
+      def.category === "feature" || def.category === "detection";
+    const meta = CATEGORY_META[def.category];
+    const pendingLabel = requiresAlgorithm
+      ? `${meta.label} — Select Algorithm`
+      : def.label;
     const data: PipelineNodeData = {
-      label: def.label,
+      label: pendingLabel,
       category: def.category,
       detectionSubType: def.detectionSubType,
       defType: def.type,
       description: def.defaultDescription ?? "",
       notes: "",
-      algorithmId: algo?.id,
-      params: algo ? defaultParamsFor(algo.id) : undefined,
+      // Algorithm-backed nodes start pending; the algorithm is chosen in the
+      // Properties panel via a live fetch from the backend registry.
+      algorithmId: undefined,
+      params: undefined,
     };
     const node: PipelineNode = {
       id,
@@ -210,6 +213,8 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
       data,
     };
     commit(set, get, () => ({ nodes: [...get().nodes, node] }));
+    // Auto-open + focus the Properties panel for the new node so the user is
+    // immediately prompted to pick an algorithm.
     set({ selectedNodeId: id });
   },
 
@@ -357,6 +362,21 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
         message:
           "Pipeline has no OUTPUT node — add at least one output stage.",
       });
+    }
+    // Algorithm-backed nodes must have an algorithm selected before the
+    // pipeline can be validated or run.
+    const algoBacked = nodes.filter(
+      (n) =>
+        n.data.category === "feature" || n.data.category === "detection",
+    );
+    for (const n of algoBacked) {
+      if (!n.data.algorithmId) {
+        const meta = CATEGORY_META[n.data.category];
+        issues.push({
+          level: "error",
+          message: `${meta.label} node requires an algorithm selection.`,
+        });
+      }
     }
     const detectionNodes = nodes.filter(
       (n) => n.data.category === "detection",

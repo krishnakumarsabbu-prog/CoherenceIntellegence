@@ -170,6 +170,28 @@ export default function CanvasToolbar({ rfInstance, onValidate }: Props) {
       <Divider />
       <button
         onClick={() => {
+          const issues = onValidate();
+          const pending = nodes.filter(
+            (n) =>
+              (n.data.category === "feature" ||
+                n.data.category === "detection") &&
+              !n.data.algorithmId,
+          );
+          if (pending.length > 0) {
+            pushToast(
+              "error",
+              `${pending[0].data.category === "feature" ? "Feature Engineering" : "Detection"} node requires an algorithm selection before running.`,
+            );
+            return;
+          }
+          const errors = issues.filter((i) => i.level === "error");
+          if (errors.length > 0) {
+            pushToast(
+              "error",
+              `Cannot run: ${errors.length} validation error(s). Fix them first.`,
+            );
+            return;
+          }
           if (nodes.length > 0) saveCurrent(activePipelineName);
           navigate("/execution-console");
         }}

@@ -4,11 +4,13 @@ import { CATEGORY_META, DETECTION_SUBTYPE_LABELS } from "../catalog";
 import { usePipelineStore } from "../pipelineStore";
 import type { PipelineNodeData } from "../types";
 import {
-  ALGORITHM_BY_ID,
-  algorithmsForDetectionSubType,
-  defaultParamsFor,
-  type ParamDef,
-} from "../../../data/algorithms";
+  categoryForNode,
+  useAlgorithmDetail,
+  useAlgorithmsForCategory,
+  type AlgorithmDetail,
+  type AlgorithmParam,
+  type AlgorithmSummary,
+} from "../algorithmApi";
 
 interface Props {
   collapsed: boolean;
@@ -114,9 +116,9 @@ function NodeForm({
     else setLabel(data.label);
   };
 
-  const algo = data.algorithmId ? ALGORITHM_BY_ID[data.algorithmId] : undefined;
   const isDetection = data.category === "detection";
   const isFeature = data.category === "feature";
+  const isAlgoBacked = isDetection || isFeature;
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -152,37 +154,37 @@ function NodeForm({
         )}
       </div>
 
-      {/* Algorithm choice for detection nodes */}
-      {isDetection && data.detectionSubType && (
+      {/* Algorithm choice for algorithm-backed nodes (feature + detection) */}
+      {isAlgoBacked && (
         <Section title="Algorithm">
           <AlgorithmSelect
-            subType={data.detectionSubType}
+            category={categoryForNode(data.category, data.detectionSubType)}
             currentId={data.algorithmId}
-            onChange={(newAlgoId) => {
-              const newAlgo = ALGORITHM_BY_ID[newAlgoId];
+            onChange={(newAlgoId, newAlgoName) => {
+              // Switching algorithms must fully replace the form — old
+              // parameter values are wiped here; the ParameterForm below
+              // re-seeds defaults from the freshly fetched schema.
               onChange({
                 algorithmId: newAlgoId,
-                label: newAlgo?.name ?? data.label,
-                params: defaultParamsFor(newAlgoId),
+                label: newAlgoName ?? data.label,
+                params: {},
               });
             }}
           />
         </Section>
       )}
 
-      {/* Algorithm parameters */}
-      {algo && (isDetection || isFeature) && (
-        <Section title="Parameters">
-          <ParameterForm
-            params={algo.parameters}
-            values={data.params ?? {}}
-            onChange={(name, value) =>
-              onChange({
-                params: { ...(data.params ?? {}), [name]: value },
-              })
-            }
-          />
-        </Section>
+      {/* Algorithm parameters — rendered from the live-fetched schema */}
+      {isAlgoBacked && data.algorithmId && (
+        <AlgorithmParameters
+          algorithmId={data.algorithmId}
+          values={data.params ?? {}}
+          onChange={(name, value) =>
+            onChange({
+              params: { ...(data.params ?? {}), [name]: value },
+            })
+          }
+        />
       )}
 
       {/* Description */}
@@ -230,19 +232,56 @@ function NodeForm({
 }
 
 function AlgorithmSelect({
-  subType,
+  category,
   currentId,
   onChange,
 }: {
-  subType: "clustering" | "anomaly" | "classification";
+  category: string | undefined;
   currentId?: string;
-  onChange: (algoId: string) => void;
+  onChange: (algoId: string, algoName?: string) => void;
 }) {
-  const choices = algorithmsForDetectionSubType(subType);
+  const { data, isLoading, isError } = useAlgorithmsForCategory(category);
+
+  if (!category) {
+    return (
+      <p className="text-xs text-canvas-400 italic">
+        Unknown algorithm category.
+      </p>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <p className="text-xs text-canvas-400 italic">Loading algorithms…</p>
+    );
+  }
+
+  if (isError) {
+    return (
+      <p className="text-xs text-red-500 italic">
+        Failed to load algorithms. Check the backend connection.
+      </p>
+    );
+  }
+
+  const choices: AlgorithmSummary[] = data?.algorithms ?? [];
+
+  if (choices.length === 0) {
+    return (
+      <p className="text-xs text-canvas-400 italic">
+        No algorithms registered for this category.
+      </p>
+    );
+  }
+
   return (
     <select
       value={currentId ?? ""}
-      onChange={(e) => onChange(e.target.value)}
+      onChange={(e) => {
+        const id = e.target.value;
+        const choice = choices.find((c) => c.id === id);
+        onChange(id, choice?.name);
+      }}
       className="input text-sm"
     >
       {!currentId && <option value="">Choose an algorithm…</option>}
@@ -255,12 +294,83 @@ function AlgorithmSelect({
   );
 }
 
+/**
+ * Renders the parameter form for a selected algorithm. The schema is fetched
+ * live from GET /algorithms/{id}; defaults are seeded into the node's params
+ * the first time the schema arrives so the form shows real values immediately.
+ */
+function AlgorithmParameters({
+  algorithmId,
+  values,
+  onChange,
+}: {
+  algorithmId: string;
+  values: Record<string, unknown>;
+  onChange: (name: string, value: unknown) => void;
+}) {
+  const { data, isLoading, isError } = useAlgorithmDetail(algorithmId);
+  const updateNodeData = usePipelineStore((s) => s.updateNodeData);
+  const selectedNodeId = usePipelineStore((s) => s.selectedNodeId);
+
+  // Seed defaults once the schema arrives, but only for params that are not
+  // already set (so we don't clobber user edits on refetch).
+  useEffect(() => {
+    if (!data?.algorithm || !selectedNodeId) return;
+    const detail = data.algorithm;
+    const merged: Record<string, unknown> = { ...values };
+    let changed = false;
+    for (const p of detail.parameters) {
+      if (!(p.name in merged)) {
+        merged[p.name] = p.default;
+        changed = true;
+      }
+    }
+    if (changed) {
+      updateNodeData(selectedNodeId, { params: merged });
+    }
+    // Intentionally depend on algorithmId + the schema identity, not on
+    // `values`, to avoid re-seeding on every keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, algorithmId, selectedNodeId, updateNodeData]);
+
+  if (isLoading) {
+    return (
+      <Section title="Parameters">
+        <p className="text-xs text-canvas-400 italic">Loading schema…</p>
+      </Section>
+    );
+  }
+
+  if (isError) {
+    return (
+      <Section title="Parameters">
+        <p className="text-xs text-red-500 italic">
+          Failed to load algorithm schema.
+        </p>
+      </Section>
+    );
+  }
+
+  const detail: AlgorithmDetail | undefined = data?.algorithm;
+  if (!detail) return null;
+
+  return (
+    <Section title="Parameters">
+      <ParameterForm
+        params={detail.parameters}
+        values={values}
+        onChange={onChange}
+      />
+    </Section>
+  );
+}
+
 function ParameterForm({
   params,
   values,
   onChange,
 }: {
-  params: ParamDef[];
+  params: AlgorithmParam[];
   values: Record<string, unknown>;
   onChange: (name: string, value: unknown) => void;
 }) {
@@ -290,7 +400,7 @@ function ParamField({
   value,
   onChange,
 }: {
-  def: ParamDef;
+  def: AlgorithmParam;
   value: unknown;
   onChange: (value: unknown) => void;
 }) {
@@ -360,7 +470,7 @@ function NumberField({
   value,
   onChange,
 }: {
-  def: ParamDef;
+  def: AlgorithmParam;
   value: unknown;
   onChange: (value: unknown) => void;
 }) {

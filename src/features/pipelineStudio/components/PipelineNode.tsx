@@ -27,24 +27,33 @@ function PipelineNodeView({ data, selected }: NodeProps) {
           ? "Classification"
           : null;
 
+  // Algorithm-backed nodes are "pending configuration" until an algorithm is
+  // selected in the Properties panel.
+  const isPending =
+    (d.category === "feature" || d.category === "detection") &&
+    !d.algorithmId;
+
   return (
     <div
-      className="relative rounded-lg bg-white border shadow-card transition-shadow"
+      className={`relative rounded-lg bg-white shadow-card transition-shadow ${
+        isPending ? "border-2 border-dashed" : "border"
+      }`}
       style={{
-        borderColor: selected ? meta.accent : "#E5E8ED",
+        borderColor: isPending ? "#C4CAD6" : selected ? meta.accent : "#E5E8ED",
         boxShadow: selected
           ? `0 0 0 2px ${meta.accent}33, 0 4px 12px rgba(16,24,40,0.08)`
           : undefined,
         width: 188,
+        opacity: isPending ? 0.92 : 1,
       }}
     >
       <div
         className="absolute left-0 top-0 bottom-0 w-1 rounded-l-lg"
-        style={{ backgroundColor: meta.accent }}
+        style={{ backgroundColor: meta.accent, opacity: isPending ? 0.5 : 1 }}
       />
       <div
         className="flex items-center gap-2 px-3 py-2 rounded-t-lg"
-        style={{ backgroundColor: meta.soft }}
+        style={{ backgroundColor: meta.soft, opacity: isPending ? 0.6 : 1 }}
       >
         <span
           className="grid place-items-center w-6 h-6 rounded shrink-0"
@@ -61,17 +70,24 @@ function PipelineNodeView({ data, selected }: NodeProps) {
             dangerouslySetInnerHTML={{ __html: iconPath }}
           />
         </span>
-        <span className="text-[10px] font-semibold uppercase tracking-wide truncate"
+        <span
+          className="text-[10px] font-semibold uppercase tracking-wide truncate"
           style={{ color: meta.accent }}
         >
           {meta.label}
         </span>
       </div>
       <div className="px-3 py-2">
-        <p className="text-sm font-medium text-canvas-800 leading-tight truncate">
+        <p
+          className={`text-sm font-medium leading-tight truncate ${
+            isPending
+              ? "text-canvas-400 italic"
+              : "text-canvas-800"
+          }`}
+        >
           {d.label}
         </p>
-        {sub && (
+        {sub && !isPending && (
           <p className="text-[10px] text-canvas-400 mt-0.5">{sub}</p>
         )}
       </div>

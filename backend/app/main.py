@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from . import db
+from .algorithms import ALGORITHM_BY_ID, CATEGORIES, algorithms_by_category
 from .dataset import SAMPLE_DATASET_ID, get_sample_dataset, parse_csv
 from .executor import run_pipeline
 from .recommendations import build_recommendations
@@ -50,6 +51,25 @@ class ExecuteRequest(BaseModel):
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/algorithms")
+def list_algorithm_categories() -> dict[str, Any]:
+    return {"categories": CATEGORIES}
+
+
+@app.get("/algorithms/{key}")
+def get_algorithms(key: str) -> dict[str, Any]:
+    """Dispatch on the single path segment:
+    - if `key` matches an algorithm id, return that algorithm's full detail
+    - otherwise treat `key` as a category and return the summary list
+    """
+    algo = ALGORITHM_BY_ID.get(key)
+    if algo:
+        return {"algorithm": algo}
+    if key in CATEGORIES:
+        return {"category": key, "algorithms": algorithms_by_category(key)}
+    return {"error": "unknown algorithm or category", "key": key}
 
 
 @app.get("/datasets/sample")

@@ -1,0 +1,93 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: theme("fontFamily.sans");
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: theme("colors.canvas.50");
+  color: theme("colors.canvas.800");
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: theme("colors.canvas.200");
+  border-radius: 8px;
+  border: 2px solid theme("colors.canvas.50");
+}
+::-webkit-scrollbar-thumb:hover {
+  background: theme("colors.canvas.300");
+}
+
+@layer components {
+  .glass-card {
+    @apply bg-white border border-canvas-200 shadow-card rounded-lg;
+  }
+  .glass-card-hover {
+    @apply transition-shadow duration-200 hover:shadow-card-hover;
+  }
+  .nav-item {
+    @apply flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium text-canvas-600 transition-colors duration-150 hover:bg-canvas-100 hover:text-canvas-800;
+  }
+  .nav-item-active {
+    @apply bg-accent-50 text-accent-700 hover:bg-accent-50 hover:text-accent-700;
+  }
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-md bg-accent-500 text-white font-medium text-sm shadow-sm transition-all duration-150 hover:bg-accent-600 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md text-canvas-600 font-medium text-sm transition-colors duration-150 hover:bg-canvas-100 hover:text-canvas-800;
+  }
+  .input {
+    @apply w-full px-3 py-2 rounded-md border border-canvas-200 bg-white text-canvas-800 text-sm placeholder:text-canvas-400 focus:outline-none focus:ring-2 focus:ring-accent-200 focus:border-accent-400 transition;
+  }
+  .badge {
+    @apply inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium;
+  }
+}
+
+/* Dark theme overrides (light-first design; dark mode supported via .dark class) */
+.dark body {
+  background-color: #0f1117;
+  color: #e5e8ed;
+}
+.dark .glass-card {
+  background-color: #1a1d26;
+  border-color: #2a2e3a;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+.dark .nav-item {
+  color: #a9b0bd;
+}
+.dark .nav-item:hover {
+  background-color: #232733;
+  color: #e5e8ed;
+}
+.dark .nav-item-active {
+  background-color: rgba(46, 90, 172, 0.18);
+  color: #adc4eb;
+}
+.dark .input {
+  background-color: #1a1d26;
+  border-color: #2a2e3a;
+  color: #e5e8ed;
+}

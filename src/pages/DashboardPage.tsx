@@ -1,11 +1,6 @@
-import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import {
-  dashboardStats,
-  recentExecutions,
-  notifications,
-  type RecentExecution,
-} from "../mocks/dashboard";
+import { useDashboardData } from "../hooks/useDashboardData";
+import { notifications, type RecentExecution, type DashboardStat } from "../mocks/dashboard";
 
 const statusStyles: Record<RecentExecution["status"], string> = {
   completed: "bg-emerald-50 text-emerald-700",
@@ -15,6 +10,7 @@ const statusStyles: Record<RecentExecution["status"], string> = {
 };
 
 export default function DashboardPage() {
+  const { stats, recentExecutions, loading } = useDashboardData();
   return (
     <div className="space-y-6 max-w-[1400px] mx-auto">
       <div>
@@ -28,7 +24,7 @@ export default function DashboardPage() {
 
       {/* Stat cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-        {dashboardStats.map((stat, i) => (
+        {stats.map((stat, i) => (
           <StatCard key={stat.id} stat={stat} index={i} />
         ))}
       </div>
@@ -36,7 +32,7 @@ export default function DashboardPage() {
       {/* Recent executions + notifications */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         <div className="xl:col-span-2">
-          <RecentExecutionsTable />
+          <RecentExecutionsTable executions={recentExecutions} loading={loading} />
         </div>
         <NotificationsFeed />
       </div>
@@ -48,14 +44,12 @@ function StatCard({
   stat,
   index,
 }: {
-  stat: (typeof dashboardStats)[number];
+  stat: DashboardStat;
   index: number;
 }) {
   const isLive = stat.id === "running-jobs";
-  const liveCount = useLiveCounter(isLive ? 3 : null);
 
-  const displayValue =
-    isLive && liveCount !== null ? String(liveCount) : stat.value;
+  const displayValue = stat.value;
 
   return (
     <motion.div
@@ -120,19 +114,13 @@ function StatCard({
   );
 }
 
-function useLiveCounter(initial: number | null) {
-  const [count, setCount] = useState<number | null>(initial);
-  useEffect(() => {
-    if (initial === null) return;
-    const id = setInterval(() => {
-      setCount((c) => (c === null ? initial : Math.max(0, c + (Math.random() > 0.5 ? 1 : -1))));
-    }, 2200);
-    return () => clearInterval(id);
-  }, [initial]);
-  return count;
-}
-
-function RecentExecutionsTable() {
+function RecentExecutionsTable({
+  executions,
+  loading,
+}: {
+  executions: RecentExecution[];
+  loading: boolean;
+}) {
   return (
     <div className="glass-card overflow-hidden">
       <div className="px-5 py-4 border-b border-canvas-100 flex items-center justify-between">
@@ -158,7 +146,20 @@ function RecentExecutionsTable() {
             </tr>
           </thead>
           <tbody>
-            {recentExecutions.map((ex, i) => (
+            {loading && executions.length === 0 ? (
+              <tr>
+                <td colSpan={5} className="px-5 py-8 text-center text-canvas-400 text-sm">
+                  Loading executions…
+                </td>
+              </tr>
+            ) : executions.length === 0 ? (
+              <tr>
+                <td colSpan={5} className="px-5 py-8 text-center text-canvas-400 text-sm">
+                  No executions yet. Run a pipeline from the Execution Console.
+                </td>
+              </tr>
+            ) : (
+              executions.map((ex, i) => (
               <motion.tr
                 key={ex.id}
                 initial={{ opacity: 0 }}
@@ -195,7 +196,8 @@ function RecentExecutionsTable() {
                   {ex.duration}
                 </td>
               </motion.tr>
-            ))}
+              ))
+            )}
           </tbody>
         </table>
       </div>

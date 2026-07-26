@@ -7,6 +7,7 @@ import SettingsPage from "./pages/SettingsPage";
 import PlaceholderPage from "./pages/PlaceholderPage";
 import PipelineStudioPage from "./features/pipelineStudio/PipelineStudioPage";
 import AlgorithmLibraryPage from "./pages/AlgorithmLibraryPage";
+import ExecutionConsolePage from "./features/executionConsole/ExecutionConsolePage";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const user = useAppStore((s) => s.user);
@@ -41,13 +42,7 @@ export default function App() {
         />
         <Route
           path="/execution-console"
-          element={
-            <PlaceholderPage
-              title="Execution Console"
-              phase="Phase 4"
-              description="Run pipelines against live or batch data, watch progress in real time, and inspect flagged cases as they surface."
-            />
-          }
+          element={<ExecutionConsolePage />}
         />
         <Route
           path="/pipeline-comparison"

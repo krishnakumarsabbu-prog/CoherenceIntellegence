@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   useReactFlow,
   type ReactFlowInstance,
@@ -12,6 +13,7 @@ interface Props {
 }
 
 export default function CanvasToolbar({ rfInstance, onValidate }: Props) {
+  const navigate = useNavigate();
   const undo = usePipelineStore((s) => s.undo);
   const redo = usePipelineStore((s) => s.redo);
   const canUndo = usePipelineStore((s) => s.past.length > 0);
@@ -23,6 +25,7 @@ export default function CanvasToolbar({ rfInstance, onValidate }: Props) {
   const activePipelineName = usePipelineStore((s) => s.activePipelineName);
   const pushToast = usePipelineStore((s) => s.pushToast);
   const nodeCount = usePipelineStore((s) => s.nodes.length);
+  const nodes = usePipelineStore((s) => s.nodes);
 
   const [saveOpen, setSaveOpen] = useState(false);
   const [name, setName] = useState(activePipelineName);
@@ -163,6 +166,20 @@ export default function CanvasToolbar({ rfInstance, onValidate }: Props) {
           Save
         </button>
       )}
+
+      <Divider />
+      <button
+        onClick={() => {
+          if (nodes.length > 0) saveCurrent(activePipelineName);
+          navigate("/execution-console");
+        }}
+        disabled={nodeCount === 0}
+        className="btn-primary text-xs disabled:opacity-50"
+        title="Run pipeline in the Execution Console"
+      >
+        <PlayIcon className="w-4 h-4" />
+        Run Pipeline
+      </button>
     </div>
   );
 }
@@ -268,6 +285,13 @@ function SaveIcon({ className }: { className?: string }) {
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className={className}>
       <path d="M5 3h11l3 3v15a1 1 0 01-1 1H5a1 1 0 01-1-1V4a1 1 0 011-1z" />
       <path d="M8 3v5h7M8 21v-7h8v7" />
+    </svg>
+  );
+}
+function PlayIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M6 4l14 8-14 8V4z" />
     </svg>
   );
 }

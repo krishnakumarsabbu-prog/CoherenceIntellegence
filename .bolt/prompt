@@ -1,0 +1,7 @@
+CoherenceIQ — Fraud Detection Pipeline Studio
+
+Scope decision locked in: This is a fraud-detection-only product, but the pipeline canvas stays generic and composable — the user drags/drops/configures their own detection pipeline at runtime instead of you hardcoding one fixed fraud flow. That composability is the product's edge over a static rules engine.
+
+Stack (consistent across all phases): Frontend: React 18, TypeScript, Vite, Zustand, TanStack Query, Tailwind CSS, @xyflow/react (React Flow), Recharts, Framer Motion Backend (from Phase 4 onward): FastAPI, SQLite, WebSockets
+
+Dont use Bolt Database or Supabase - For backend storing use SQLite

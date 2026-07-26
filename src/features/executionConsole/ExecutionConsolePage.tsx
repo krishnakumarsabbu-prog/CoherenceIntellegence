@@ -7,6 +7,7 @@ import { uploadDataset } from "./api";
 import LivePipelineGraph from "./components/LivePipelineGraph";
 import LogPanel from "./components/LogPanel";
 import ResultsPanel from "./components/ResultsPanel";
+import SuggestedOptimizations from "./components/SuggestedOptimizations";
 
 export default function ExecutionConsolePage() {
   const savedPipelines = usePipelineStore((s) => s.savedPipelines);
@@ -271,8 +272,19 @@ function LiveView({
         </div>
         <div className="min-w-0">
           {results ? (
-            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
+            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="space-y-4">
               <ResultsPanel results={results} />
+              {selected && (
+                <SuggestedOptimizations
+                  pipeline={{
+                    id: selected.id,
+                    name: selected.name,
+                    nodes: selected.nodes,
+                    edges: selected.edges,
+                  }}
+                  summary={results.summary}
+                />
+              )}
             </motion.div>
           ) : (
             <div className="glass-card h-full grid place-items-center text-center text-sm text-canvas-400">

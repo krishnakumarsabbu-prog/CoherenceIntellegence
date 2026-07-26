@@ -8,6 +8,7 @@ import PlaceholderPage from "./pages/PlaceholderPage";
 import PipelineStudioPage from "./features/pipelineStudio/PipelineStudioPage";
 import AlgorithmLibraryPage from "./pages/AlgorithmLibraryPage";
 import ExecutionConsolePage from "./features/executionConsole/ExecutionConsolePage";
+import PipelineComparisonPage from "./features/pipelineComparison/PipelineComparisonPage";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const user = useAppStore((s) => s.user);
@@ -46,13 +47,7 @@ export default function App() {
         />
         <Route
           path="/pipeline-comparison"
-          element={
-            <PlaceholderPage
-              title="Pipeline Comparison"
-              phase="Phase 5"
-              description="Compare the accuracy, throughput, and flagged-case overlap of multiple pipelines side by side."
-            />
-          }
+          element={<PipelineComparisonPage />}
         />
         <Route
           path="/reports"

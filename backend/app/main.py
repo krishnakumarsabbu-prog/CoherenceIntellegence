@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from . import db
 from .dataset import SAMPLE_DATASET_ID, get_sample_dataset, parse_csv
 from .executor import run_pipeline
+from .recommendations import build_recommendations
 
 app = FastAPI(title="CoherenceIQ Backend", version="0.1.0")
 
@@ -192,6 +193,65 @@ def get_execution(exec_id: str) -> dict[str, Any] | None:
     if exec_id in _results_cache:
         out["results"] = _results_cache[exec_id]
     return out
+
+
+class RecommendRequest(BaseModel):
+    pipeline: dict[str, Any]
+    summary: dict[str, Any]
+
+
+class ComparisonRequest(BaseModel):
+    pipelines: list[dict[str, Any]]
+    dataset_ref: str | None = None
+
+
+@app.post("/pipelines/compare")
+async def compare_pipelines(body: ComparisonRequest) -> dict[str, Any]:
+    """Run 2-3 pipelines against the same dataset and return each one's summary.
+
+    Reuses the same execution engine (run_pipeline) as a single run — no
+    duplicated execution logic. Runs sequentially for deterministic, comparable
+    results and returns once all are complete.
+    """
+    if not body.pipelines:
+        return {"results": []}
+
+    dataset_rows: list[dict[str, Any]] | None = None
+    if body.dataset_ref == SAMPLE_DATASET_ID:
+        dataset_rows = get_sample_dataset()["rows"]
+    elif body.dataset_ref and body.dataset_ref.startswith("upload-"):
+        ds = db.get_dataset(body.dataset_ref)
+        if ds and ds.get("rows"):
+            dataset_rows = ds["rows"]  # type: ignore[assignment]
+
+    out: list[dict[str, Any]] = []
+    for pipe in body.pipelines:
+        summary: dict[str, Any] | None = None
+        error: str | None = None
+        try:
+            async for msg in run_pipeline(pipe, body.dataset_ref, dataset_rows, None, None):
+                if msg.get("type") == "complete":
+                    summary = msg["results"]["summary"]
+                elif msg.get("type") == "error":
+                    error = msg.get("message")
+        except Exception as exc:  # noqa: BLE001
+            error = str(exc)
+        out.append({
+            "pipeline_id": pipe.get("id"),
+            "pipeline_name": pipe.get("name"),
+            "summary": summary,
+            "error": error,
+        })
+    return {"results": out}
+
+
+@app.post("/pipelines/recommendations")
+def recommendations(body: RecommendRequest) -> dict[str, Any]:
+    """Rule-based suggested optimizations for a completed pipeline run.
+
+    Heuristic lookup, not an ML model — surfaced as 'Suggested Optimizations'.
+    """
+    return {"suggestions": build_recommendations(body.pipeline, body.summary)}
 
 
 @app.get("/executions")

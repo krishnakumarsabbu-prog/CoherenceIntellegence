@@ -4,10 +4,9 @@ export interface NavItem {
   label: string;
   to: string;
   icon: (props: { className?: string }) => JSX.Element;
-  phase?: string;
 }
 
-// Lightweight inline SVG icons (avoid extra icon dependency for Phase 1)
+// Lightweight inline SVG icons
 function svg(path: string, viewBox = "0 0 24 24") {
   return function Icon({ className }: { className?: string }) {
     return (
@@ -31,7 +30,7 @@ export const navItems: NavItem[] = [
     label: "Dashboard",
     to: "/dashboard",
     icon: svg(
-      '<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>'
+      '<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"'
     ),
   },
   {
@@ -40,7 +39,6 @@ export const navItems: NavItem[] = [
     icon: svg(
       '<circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M8 7.5L11 16M16 7.5L13 16M8 6h8"/>'
     ),
-    phase: "Phase 2",
   },
   {
     label: "Algorithm Library",
@@ -48,7 +46,6 @@ export const navItems: NavItem[] = [
     icon: svg(
       '<path d="M4 4v16M4 4h16M4 12h12"/><circle cx="18" cy="6" r="1.5"/><circle cx="18" cy="18" r="1.5"/>'
     ),
-    phase: "Phase 3",
   },
   {
     label: "Execution Console",
@@ -56,7 +53,6 @@ export const navItems: NavItem[] = [
     icon: svg(
       '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 9l3 3-3 3M13 15h3"/>'
     ),
-    phase: "Phase 4",
   },
   {
     label: "Pipeline Comparison",
@@ -64,7 +60,6 @@ export const navItems: NavItem[] = [
     icon: svg(
       '<path d="M7 3v18M17 3v18"/><rect x="4" y="8" width="6" height="8" rx="1"/><rect x="14" y="5" width="6" height="11" rx="1"/>'
     ),
-    phase: "Phase 5",
   },
   {
     label: "Reports",
@@ -72,7 +67,6 @@ export const navItems: NavItem[] = [
     icon: svg(
       '<path d="M7 3h7l5 5v13a1 1 0 01-1 1H7a1 1 0 01-1-1V4a1 1 0 011-1z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h6"/>'
     ),
-    phase: "Phase 5",
   },
   {
     label: "Settings",

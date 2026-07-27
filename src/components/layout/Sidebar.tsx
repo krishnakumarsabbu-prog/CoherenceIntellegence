@@ -76,11 +76,6 @@ export default function Sidebar() {
               {!collapsed && (
                 <span className="flex-1 truncate">{item.label}</span>
               )}
-              {!collapsed && item.phase && (
-                <span className="text-[10px] font-medium text-canvas-400 bg-canvas-100 px-1.5 py-0.5 rounded">
-                  {item.phase}
-                </span>
-              )}
             </NavLink>
           );
         })}

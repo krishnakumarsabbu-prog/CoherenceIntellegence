@@ -12,43 +12,81 @@ export default function LogPanel() {
     return logs.filter((l) => l.node_id === filter);
   }, [logs, filter]);
 
-  // Auto-scroll to bottom on new lines.
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [logs.length]);
 
   return (
-    <div className="glass-card flex flex-col h-full overflow-hidden">
-      <div className="px-4 py-3 border-b border-canvas-100 flex items-center justify-between gap-2">
-        <div>
-          <h3 className="text-sm font-semibold text-canvas-800">Execution Log</h3>
-          <p className="text-xs text-canvas-400 mt-0.5">Live stream of pipeline events</p>
+    <div className="bg-white border border-slate-200 rounded-2xl shadow-sm flex flex-col h-full overflow-hidden">
+      {/* Terminal Header */}
+      <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-rose-400" />
+            <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
+          </div>
+          <span className="text-xs font-mono font-bold text-slate-700 uppercase tracking-widest pl-2 border-l border-slate-200">
+            Telemetry Stream
+          </span>
+          <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+            {filtered.length} EVENTS
+          </span>
         </div>
+
         <select
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          className="input text-xs py-1.5 w-auto max-w-[160px]"
-          title="Filter by node"
+          className="bg-white text-slate-700 text-xs font-mono border border-slate-200 rounded-lg px-2.5 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
         >
-          <option value="all">All nodes</option>
+          <option value="all">⚡ All Nodes Stream</option>
           {nodes.map((n) => (
             <option key={n.id} value={n.id}>
-              {n.label}
+              📍 {n.label}
             </option>
           ))}
         </select>
       </div>
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-2 font-mono text-xs space-y-1 min-h-[120px]">
+
+      {/* Stream Output */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 font-mono text-xs space-y-2 bg-[#F8FAFC] min-h-[140px] leading-relaxed">
         {filtered.length === 0 ? (
-          <p className="text-canvas-400 italic py-4 text-center">No log entries yet. Run a pipeline to begin.</p>
+          <div className="h-full flex flex-col items-center justify-center text-slate-400 text-xs py-10 space-y-1">
+            <span className="text-2xl">📡</span>
+            <span className="font-semibold text-slate-500">Awaiting execution telemetry stream…</span>
+            <span className="text-[11px] text-slate-400">Click "Run Enterprise Pipeline" to watch live execution.</span>
+          </div>
         ) : (
-          filtered.map((l) => (
-            <div key={l.id} className="flex gap-2 leading-relaxed">
-              <span className="text-canvas-400 shrink-0">{new Date(l.ts).toLocaleTimeString()}</span>
-              <span className={l.level === "error" ? "text-red-600" : "text-canvas-700"}>{l.message}</span>
-            </div>
-          ))
+          filtered.map((l) => {
+            const isError = l.level === "error";
+            const isNodeEvent = l.message.includes("Scored") || l.message.includes("Cleaned") || l.message.includes("Loaded");
+            return (
+              <div key={l.id} className="flex items-start gap-2.5 hover:bg-slate-200/50 p-1.5 rounded-lg transition-colors group">
+                <span className="text-slate-400 shrink-0 text-[10px] font-bold">
+                  [{new Date(l.ts).toLocaleTimeString()}]
+                </span>
+                <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase shrink-0 ${
+                  isError
+                    ? "bg-rose-100 text-rose-800 border border-rose-200"
+                    : isNodeEvent
+                    ? "bg-indigo-100 text-indigo-800 border border-indigo-200"
+                    : "bg-slate-200 text-slate-700 border border-slate-300"
+                }`}>
+                  {isError ? "ERR" : isNodeEvent ? "TELEMETRY" : "INFO"}
+                </span>
+                <span className={`text-[11px] break-all ${
+                  isError
+                    ? "text-rose-700 font-semibold"
+                    : isNodeEvent
+                    ? "text-slate-800 font-medium"
+                    : "text-slate-700"
+                }`}>
+                  {l.message}
+                </span>
+              </div>
+            );
+          })
         )}
       </div>
     </div>

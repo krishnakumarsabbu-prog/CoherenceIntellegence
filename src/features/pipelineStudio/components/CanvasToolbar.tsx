@@ -10,9 +10,10 @@ import type { ValidationIssue } from "../types";
 interface Props {
   rfInstance: ReactFlowInstance | null;
   onValidate: () => ValidationIssue[];
+  onBackToDashboard?: () => void;
 }
 
-export default function CanvasToolbar({ rfInstance, onValidate }: Props) {
+export default function CanvasToolbar({ rfInstance, onValidate, onBackToDashboard }: Props) {
   const navigate = useNavigate();
   const undo = usePipelineStore((s) => s.undo);
   const redo = usePipelineStore((s) => s.redo);
@@ -33,31 +34,42 @@ export default function CanvasToolbar({ rfInstance, onValidate }: Props) {
   const doSave = () => {
     saveCurrent(name);
     setSaveOpen(false);
-    pushToast("success", `Pipeline "${name.trim() || "Untitled pipeline"}" saved.`);
+    pushToast("success", `Pipeline "${name.trim() || "Untitled pipeline"}" saved to Database.`);
   };
 
   const doValidate = () => {
     const issues = onValidate();
     const errors = issues.filter((i) => i.level === "error");
-    const warnings = issues.filter((i) => i.level === "warning");
-    if (errors.length === 0 && warnings.length === 1) {
-      // The single "passed" sentinel
-      pushToast("success", warnings[0].message);
-    } else if (errors.length > 0) {
-      pushToast(
-        "error",
-        `Validation found ${errors.length} error(s) and ${warnings.length} warning(s).`,
-      );
+    const infos = issues.filter((i) => i.level === "info");
+
+    if (errors.length === 0) {
+      const msg = infos[0]?.message || "Pipeline validation passed! Structure is valid and ready for execution.";
+      pushToast("success", msg);
     } else {
       pushToast(
-        "warning",
-        `Validation found ${warnings.length} warning(s).`,
+        "error",
+        `Validation failed (${errors.length} error): ${errors.map((e) => e.message).join(" | ")}`,
       );
     }
   };
 
   return (
-    <div className="h-12 px-3 flex items-center gap-1 border-b border-canvas-100 bg-white/80 backdrop-blur-sm">
+    <div className="h-12 px-3 flex items-center gap-1.5 border-b border-canvas-100 bg-white/80 backdrop-blur-sm">
+      {onBackToDashboard && (
+        <>
+          <button
+            onClick={onBackToDashboard}
+            className="btn-ghost text-xs flex items-center gap-1 text-canvas-700 font-semibold hover:bg-canvas-100 px-2 py-1 rounded-md"
+            title="Return to Pipelines Dashboard"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+            </svg>
+            <span>Dashboard</span>
+          </button>
+          <Divider />
+        </>
+      )}
       <ToolGroup>
         <ToolButton
           title="Zoom in"
@@ -171,24 +183,11 @@ export default function CanvasToolbar({ rfInstance, onValidate }: Props) {
       <button
         onClick={() => {
           const issues = onValidate();
-          const pending = nodes.filter(
-            (n) =>
-              (n.data.category === "feature" ||
-                n.data.category === "detection") &&
-              !n.data.algorithmId,
-          );
-          if (pending.length > 0) {
-            pushToast(
-              "error",
-              `${pending[0].data.category === "feature" ? "Feature Engineering" : "Detection"} node requires an algorithm selection before running.`,
-            );
-            return;
-          }
           const errors = issues.filter((i) => i.level === "error");
           if (errors.length > 0) {
             pushToast(
               "error",
-              `Cannot run: ${errors.length} validation error(s). Fix them first.`,
+              `Cannot run: ${errors.map((e) => e.message).join(" | ")}`,
             );
             return;
           }

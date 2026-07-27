@@ -9,10 +9,6 @@ interface Props {
   summary: ExecutionSummary;
 }
 
-/**
- * Rule-based "Suggested Optimizations" panel shown after a single pipeline run.
- * Explicitly heuristic, not an ML model — copy avoids overclaiming.
- */
 export default function SuggestedOptimizations({ pipeline, summary }: Props) {
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [loading, setLoading] = useState(true);
@@ -39,56 +35,50 @@ export default function SuggestedOptimizations({ pipeline, summary }: Props) {
   }, [pipeline, summary]);
 
   return (
-    <div className="glass-card overflow-hidden">
-      <div className="px-4 py-3 border-b border-canvas-100">
-        <div className="flex items-center gap-2">
-          <svg viewBox="0 0 24 24" className="w-4 h-4 text-accent-600" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
-            <path d="M9 18h6M10 22h4M12 2a7 7 0 00-4 12.7c.6.5 1 1.3 1 2.1h6c0-.8.4-1.6 1-2.1A7 7 0 0012 2z" />
-          </svg>
-          <h3 className="text-sm font-semibold text-canvas-800">Suggested Optimizations</h3>
+    <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+      <div className="px-5 py-4 bg-gradient-to-r from-amber-50/60 via-white to-white border-b border-slate-200 flex items-center justify-between">
+        <div className="flex items-center gap-2.5">
+          <div className="p-2 rounded-xl bg-amber-100 text-amber-700 border border-amber-200">
+            <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 18h6M10 22h4M12 2a7 7 0 00-4 12.7c.6.5 1 1.3 1 2.1h6c0-.8.4-1.6 1-2.1A7 7 0 0012 2z" />
+            </svg>
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-slate-800">Executive Advisory · Architectural Optimizations</h3>
+            <p className="text-xs text-slate-500">Heuristic topology analysis based on score distribution and node flow</p>
+          </div>
         </div>
-        <p className="text-[11px] text-canvas-400 mt-1">
-          Rule-based hints from your pipeline structure and results — not AI predictions.
-        </p>
+        <span className="px-2.5 py-1 rounded-full text-[10px] font-mono font-bold bg-amber-50 text-amber-800 border border-amber-200">
+          {suggestions.length} ADVISORIES
+        </span>
       </div>
 
-      <div className="p-4">
+      <div className="p-5">
         {loading ? (
-          <div className="py-6 text-center text-sm text-canvas-400">Analyzing pipeline…</div>
+          <div className="py-6 text-center text-xs font-mono text-slate-400">Analyzing pipeline topology…</div>
         ) : error ? (
-          <div className="py-4 text-center text-sm text-red-600">
-            Couldn't load suggestions: {error}
-          </div>
+          <div className="py-4 text-center text-xs text-rose-600">Couldn't load suggestions: {error}</div>
         ) : suggestions.length === 0 ? (
-          <div className="py-6 text-center text-sm text-canvas-400">
-            No optimization rules triggered — this pipeline looks well-structured for its metrics.
+          <div className="py-6 text-center text-xs text-slate-500">
+            No topology warnings triggered — this architecture is highly optimal for its current threshold.
           </div>
         ) : (
           <div className="space-y-3">
             {suggestions.map((s) => {
               const isOpen = !!expanded[s.id];
               return (
-                <div key={s.id} className="rounded-lg border border-canvas-200 bg-canvas-50/40 overflow-hidden">
-                  <div className="p-3">
-                    <p className="text-sm font-medium text-canvas-800 leading-snug">{s.title}</p>
-                    <p className="text-xs text-canvas-500 mt-1.5 leading-relaxed">{s.why}</p>
-                    <button
-                      onClick={() => setExpanded((prev) => ({ ...prev, [s.id]: !prev[s.id] }))}
-                      className="mt-2.5 inline-flex items-center gap-1 text-xs font-medium text-accent-600 hover:text-accent-700 transition-colors"
-                    >
-                      {isOpen ? "Hide impact estimate" : "Preview Impact"}
-                      <svg
-                        viewBox="0 0 12 12"
-                        className={`w-3 h-3 transition-transform ${isOpen ? "rotate-180" : ""}`}
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth={2}
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
+                <div key={s.id} className="rounded-xl border border-slate-200 bg-slate-50/50 overflow-hidden">
+                  <div className="p-4 space-y-2">
+                    <div className="flex items-start justify-between gap-3">
+                      <p className="text-xs font-bold text-slate-800 leading-snug">{s.title}</p>
+                      <button
+                        onClick={() => setExpanded((prev) => ({ ...prev, [s.id]: !prev[s.id] }))}
+                        className="px-2.5 py-1 rounded-lg text-[10px] font-mono font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 transition-colors shrink-0"
                       >
-                        <path d="M2 4l4 4 4-4" />
-                      </svg>
-                    </button>
+                        {isOpen ? "Hide Impact" : "Preview Impact"}
+                      </button>
+                    </div>
+                    <p className="text-xs text-slate-600 leading-relaxed">{s.why}</p>
                   </div>
                   <AnimatePresence>
                     {isOpen && (
@@ -97,20 +87,13 @@ export default function SuggestedOptimizations({ pipeline, summary }: Props) {
                         animate={{ height: "auto", opacity: 1 }}
                         exit={{ height: 0, opacity: 0 }}
                         transition={{ duration: 0.2 }}
-                        className="overflow-hidden border-t border-canvas-200 bg-amber-50/40"
+                        className="overflow-hidden border-t border-slate-200 bg-amber-50/50 p-4 space-y-1.5"
                       >
-                        <div className="p-3">
-                          <p className="text-[11px] font-medium text-amber-700 uppercase tracking-wide">
-                            Estimated impact on {s.estimate.metric}
-                          </p>
-                          <p className="text-sm font-semibold text-amber-800 mt-1">{s.estimate.delta}</p>
-                          <p className="text-[11px] text-canvas-500 mt-1.5 leading-relaxed">
-                            {s.estimate.note}
-                          </p>
-                          <p className="text-[10px] text-canvas-400 mt-1.5 italic">
-                            This is a static estimate, not a guarantee — a real re-run is needed to confirm.
-                          </p>
+                        <div className="text-[10px] font-mono font-bold text-amber-800 uppercase tracking-wider">
+                          ESTIMATED METRIC IMPACT: {s.estimate.metric}
                         </div>
+                        <p className="text-sm font-black text-amber-900">{s.estimate.delta}</p>
+                        <p className="text-xs text-slate-700">{s.estimate.note}</p>
                       </motion.div>
                     )}
                   </AnimatePresence>

@@ -2,11 +2,9 @@
 detection algorithm metadata (ids, parameter schemas, etc.).
 
 Exposed via the REST endpoints in main.py:
-  GET /algorithms/{category}  -> list of summaries for a category
+  GET /algorithms             -> list of categories (or all algorithms with full=true)
+  GET /algorithms/{category}  -> list of algorithms for a category
   GET /algorithms/{id}        -> full algorithm detail (with parameter schema)
-
-The frontend Pipeline Studio fetches these live so newly registered
-algorithms appear in the dropdown with zero frontend changes.
 """
 from typing import Any
 
@@ -25,7 +23,7 @@ def _p(name, type_, default, hint, **extra):
 
 
 REGISTRY: list[dict[str, Any]] = [
-    # ─────────────────────── FEATURE ENGINEERING ───────────────────────
+    # ─────────────────────── FEATURE ENGINEERING (10) ───────────────────────
     {
         "id": "feat.velocity-features",
         "name": "Velocity Features",
@@ -156,7 +154,126 @@ REGISTRY: list[dict[str, Any]] = [
         ],
         "exampleUseCase": "Keeps the 15 merchant-category flags most associated with confirmed chargebacks.",
     },
-    # ─────────────────────────── CLUSTERING ─────────────────────────────
+    {
+        "id": "feat.target-encoding",
+        "name": "Target Encoding",
+        "category": "feature-engineering",
+        "oneLine": "Encodes high-cardinality categoricals using smoothed mean target fraud rates.",
+        "complexity": "Medium",
+        "inputType": "Tabular",
+        "outputType": "Feature Set",
+        "stability": "Stable",
+        "version": "v1.1",
+        "advantages": [
+            "Replaces high-cardinality columns (e.g. zip codes, merchant IDs) with informative 1D floats.",
+            "Uses Bayesian smoothing to prevent extreme estimates on rare categories.",
+            "Dramatically speeds up tree and linear models without massive sparse matrices.",
+        ],
+        "disadvantages": [
+            "Prone to target leakage if not fitted strictly inside cross-validation splits.",
+            "Requires historical label availability to compute credible target priors.",
+        ],
+        "parameters": [
+            _p("smoothing", "number", 10.0, "Weight assigned to global mean relative to category mean.", min=1.0, max=100.0, step=1.0),
+            _p("cvFolds", "integer", 5, "Out-of-fold splits for target encoding to prevent leakage.", min=2, max=10, step=1),
+        ],
+        "exampleUseCase": "Transforms 250,000 raw merchant IDs into smoothed historical fraud rate numbers.",
+    },
+    {
+        "id": "feat.polynomial-features",
+        "name": "Polynomial Features",
+        "category": "feature-engineering",
+        "oneLine": "Generates feature cross-products and powers for capturing non-linear interactions.",
+        "complexity": "Medium",
+        "inputType": "Feature Set",
+        "outputType": "Feature Set",
+        "stability": "Stable",
+        "version": "v1.0",
+        "advantages": [
+            "Exposes multiplicative terms like (amount * velocity) to simple linear models.",
+            "Deterministic and fast to evaluate during online scoring.",
+        ],
+        "disadvantages": [
+            "Causes explosive feature dimension growth (O(d^degree)).",
+            "Creates collinearity that requires downstream regularisation.",
+        ],
+        "parameters": [
+            _p("degree", "integer", 2, "Maximum polynomial degree.", min=2, max=4, step=1),
+            _p("interactionOnly", "boolean", True, "Produce interaction terms only (exclude self-powers)."),
+        ],
+        "exampleUseCase": "Creates an explicit cross-feature between transaction distance and time of day.",
+    },
+    {
+        "id": "feat.tfidf-vectorizer",
+        "name": "TF-IDF Vectorizer",
+        "category": "feature-engineering",
+        "oneLine": "Extracts term frequency-inverse document frequency features from transaction memos & titles.",
+        "complexity": "Medium",
+        "inputType": "Tabular",
+        "outputType": "Embedding",
+        "stability": "Stable",
+        "version": "v1.2",
+        "advantages": [
+            "Surfaces suspicious keyword combinations in wire transfer memo text.",
+            "Downweights common noise words while emphasizing rare fraud indicators.",
+        ],
+        "disadvantages": [
+            "Does not capture semantic word order or deep contextual meaning.",
+            "Generates sparse outputs that require linear or tree models suited for high-dimensionality.",
+        ],
+        "parameters": [
+            _p("maxFeatures", "integer", 500, "Maximum number of vocabulary terms to retain.", min=50, max=5000, step=50),
+            _p("ngramRange", "enum", "1-2", "N-gram word tuples to consider.", options=["1-1", "1-2", "1-3"]),
+        ],
+        "exampleUseCase": "Converts wire payment descriptions into term weight vectors to flag crypto purchase scams.",
+    },
+    {
+        "id": "feat.frequency-encoding",
+        "name": "Frequency Encoding",
+        "category": "feature-engineering",
+        "oneLine": "Maps categorical values to their normalized occurrence counts across the dataset.",
+        "complexity": "Low",
+        "inputType": "Tabular",
+        "outputType": "Feature Set",
+        "stability": "Stable",
+        "version": "v1.0",
+        "advantages": [
+            "Completely unsupervised method suitable for live streaming feeds.",
+            "Captures rarity of categorical attributes without risk of target leakage.",
+        ],
+        "disadvantages": [
+            "Categories with identical frequencies map to the exact same value.",
+            "Does not inform the model whether a frequency is good or bad by itself.",
+        ],
+        "parameters": [
+            _p("normalize", "boolean", True, "Normalize raw counts to fractions of total rows."),
+        ],
+        "exampleUseCase": "Identifies rare IP subnets and device user-agents based on low dataset frequencies.",
+    },
+    {
+        "id": "feat.robust-scaler",
+        "name": "Robust Feature Scaler",
+        "category": "feature-engineering",
+        "oneLine": "Scales numeric features using statistics robust to severe financial outliers (IQR/Median).",
+        "complexity": "Low",
+        "inputType": "Feature Set",
+        "outputType": "Feature Set",
+        "stability": "Stable",
+        "version": "v1.1",
+        "advantages": [
+            "Prevents multi-million dollar wire outliers from crushing standard scaler variances.",
+            "Centers data at median rather than mean, maintaining natural distributions.",
+        ],
+        "disadvantages": [
+            "Outliers remain un-bounded in scaled space (unlike MinMax scaling).",
+        ],
+        "parameters": [
+            _p("quantileRange", "enum", "25-75", "Interquartile percentile range used for scaling.", options=["25-75", "10-90", "5-95"]),
+        ],
+        "exampleUseCase": "Prepares highly skewed transaction amount distributions for neural network models.",
+    },
+
+    # ─────────────────────────── CLUSTERING (10) ─────────────────────────────
     {
         "id": "det.cluster.dbscan",
         "name": "DBSCAN",
@@ -265,7 +382,149 @@ REGISTRY: list[dict[str, Any]] = [
         ],
         "exampleUseCase": "Establishes a baseline behavioural segmentation before comparing HDBSCAN ring output.",
     },
-    # ─────────────────────── ANOMALY DETECTION ───────────────────────────
+    {
+        "id": "det.cluster.agglomerative",
+        "name": "Agglomerative Clustering",
+        "category": "clustering",
+        "oneLine": "Hierarchical bottom-up tree clustering that iteratively merges nearest clusters.",
+        "complexity": "Medium",
+        "inputType": "Vector",
+        "outputType": "Labels",
+        "stability": "Stable",
+        "version": "v1.1",
+        "advantages": [
+            "Builds a full dendrogram revealing hierarchical relationships among entity cohorts.",
+            "Supports arbitrary distance metrics and linkage criteria.",
+        ],
+        "disadvantages": [
+            "O(n^3) time complexity makes raw scaling to massive transaction volumes slow.",
+            "Once two items are merged early, the decision cannot be undone.",
+        ],
+        "parameters": [
+            _p("nClusters", "integer", 5, "Number of clusters to find.", min=2, max=50, step=1),
+            _p("linkage", "enum", "ward", "Linkage criterion.", options=["ward", "complete", "average", "single"]),
+        ],
+        "exampleUseCase": "Hierarchy exploration of merchant spending behaviors across sub-industries.",
+    },
+    {
+        "id": "det.cluster.gmm",
+        "name": "Gaussian Mixture Models (GMM)",
+        "category": "clustering",
+        "oneLine": "Probabilistic soft clustering assigning probability distributions over component Gaussian distributions.",
+        "complexity": "High",
+        "inputType": "Vector",
+        "outputType": "Scores",
+        "stability": "Stable",
+        "version": "v1.3",
+        "advantages": [
+            "Provides soft cluster membership probabilities rather than strict hard labels.",
+            "Allows elliptical clusters of varying shapes and orientations.",
+        ],
+        "disadvantages": [
+            "Sensitive to initial parameters; EM algorithm can get stuck in local optima.",
+            "Requires specifying the number of components in advance.",
+        ],
+        "parameters": [
+            _p("nComponents", "integer", 6, "Number of Gaussian components.", min=2, max=30, step=1),
+            _p("covarianceType", "enum", "full", "Type of covariance parameters.", options=["full", "tied", "diag", "spherical"]),
+        ],
+        "exampleUseCase": "Estimates posterior probability of a transaction belonging to legitimate high-value customer clusters.",
+    },
+    {
+        "id": "det.cluster.optics",
+        "name": "OPTICS",
+        "category": "clustering",
+        "oneLine": "Ordering points to identify cluster structure, handling multi-density spatial structures.",
+        "complexity": "High",
+        "inputType": "Vector",
+        "outputType": "Labels",
+        "stability": "Beta",
+        "version": "v0.9",
+        "advantages": [
+            "Does not require a strict global eps parameter like standard DBSCAN.",
+            "Produces a reachability plot showing density levels across all scales.",
+        ],
+        "disadvantages": [
+            "Higher memory and execution time requirements than DBSCAN.",
+        ],
+        "parameters": [
+            _p("minSamples", "integer", 5, "Number of samples in a neighborhood for a point to be a core point.", min=2, max=50, step=1),
+            _p("maxEps", "number", 2.0, "Maximum distance between two samples.", min=0.1, max=10.0, step=0.1),
+        ],
+        "exampleUseCase": "Detects ATM cash-out clusters across urban centers with vastly different transaction densities.",
+    },
+    {
+        "id": "det.cluster.spectral",
+        "name": "Spectral Clustering",
+        "category": "clustering",
+        "oneLine": "Uses spectrum of graph Laplacian matrix to perform non-linear manifold clustering.",
+        "complexity": "High",
+        "inputType": "Graph",
+        "outputType": "Labels",
+        "stability": "Beta",
+        "version": "v1.0",
+        "advantages": [
+            "Discovers highly complex non-convex cluster shapes in graph embedding space.",
+            "Effective for network graph connectivity clustering.",
+        ],
+        "disadvantages": [
+            "Eigen-decomposition of similarity matrix is computationally expensive for n > 20,000.",
+        ],
+        "parameters": [
+            _p("nClusters", "integer", 8, "Number of clusters to extract.", min=2, max=50, step=1),
+            _p("affinity", "enum", "rbf", "Affinity matrix construction method.", options=["rbf", "nearest_neighbors"]),
+        ],
+        "exampleUseCase": "Groups interconnected device fingerprint networks to unearth coordinated bot farms.",
+    },
+    {
+        "id": "det.cluster.bisecting-kmeans",
+        "name": "Bisecting KMeans",
+        "category": "clustering",
+        "oneLine": "Hierarchical divisive algorithm splitting clusters using fast repeated k=2 KMeans.",
+        "complexity": "Low",
+        "inputType": "Vector",
+        "outputType": "Labels",
+        "stability": "Stable",
+        "version": "v1.1",
+        "advantages": [
+            "Faster and more consistent than standard KMeans on large datasets.",
+            "Produces a structured cluster hierarchy while remaining computationally cheap.",
+        ],
+        "disadvantages": [
+            "Still constrained by spherical cluster geometry assumptions.",
+        ],
+        "parameters": [
+            _p("nClusters", "integer", 10, "Total number of leaf clusters.", min=2, max=100, step=1),
+            _p("bisectingStrategy", "enum", "biggest_cluster", "Which cluster to split next.", options=["biggest_cluster", "largest_sse"]),
+        ],
+        "exampleUseCase": "Fast segmentation of customer transaction profiles for real-time risk tiers.",
+    },
+    {
+        "id": "det.cluster.mean-shift",
+        "name": "Mean Shift",
+        "category": "clustering",
+        "oneLine": "Non-parametric mode-seeking algorithm discovering cluster centers by updating candidate points.",
+        "complexity": "High",
+        "inputType": "Vector",
+        "outputType": "Labels",
+        "stability": "Stable",
+        "version": "v1.0",
+        "advantages": [
+            "Does not require specifying number of clusters in advance.",
+            "Finds arbitrary mode centers determined purely by data density.",
+        ],
+        "disadvantages": [
+            "Bandwidth parameter selection heavily impacts output cluster quality.",
+            "Computationally intensive on high-dimensional vectors.",
+        ],
+        "parameters": [
+            _p("bandwidth", "number", 1.5, "Kernel bandwidth parameter.", min=0.1, max=10.0, step=0.1),
+            _p("binSeeding", "boolean", True, "Discretize initial seeds to accelerate convergence."),
+        ],
+        "exampleUseCase": "Locates geographical hotspots of compromised POS terminal swipe locations.",
+    },
+
+    # ─────────────────────── ANOMALY DETECTION (10) ───────────────────────────
     {
         "id": "det.anomaly.isolation-forest",
         "name": "Isolation Forest",
@@ -375,7 +634,145 @@ REGISTRY: list[dict[str, Any]] = [
         ],
         "exampleUseCase": "Boundaries the normal spending region for a merchant portfolio; out-of-region txns are flagged.",
     },
-    # ───────────────────────── CLASSIFICATION ───────────────────────────
+    {
+        "id": "det.anomaly.elliptic-envelope",
+        "name": "Elliptic Envelope (MCD)",
+        "category": "anomaly-detection",
+        "oneLine": "Fits a robust covariance envelope assuming Gaussian-distributed legitimate transaction features.",
+        "complexity": "Medium",
+        "inputType": "Feature Set",
+        "outputType": "Scores",
+        "stability": "Stable",
+        "version": "v1.1",
+        "advantages": [
+            "Extremely fast calculation for continuous feature matrices.",
+            "Robust against extreme outliers due to Minimum Covariance Determinant fitting.",
+        ],
+        "disadvantages": [
+            "Assumes features follow unimodal Gaussian distributions; fails on multi-modal data.",
+        ],
+        "parameters": [
+            _p("contamination", "number", 0.03, "Expected proportion of outliers.", min=0.001, max=0.2, step=0.001),
+            _p("assumeCentered", "boolean", False, "Assume data is pre-centered around origin."),
+        ],
+        "exampleUseCase": "Detects anomalous transfer amounts and frequencies in standardized corporate payroll runs.",
+    },
+    {
+        "id": "det.anomaly.copod",
+        "name": "COPOD (Copula Outlier Detection)",
+        "category": "anomaly-detection",
+        "oneLine": "Fast parameter-free anomaly detector estimating empirical copula tail probabilities.",
+        "complexity": "Low",
+        "inputType": "Feature Set",
+        "outputType": "Scores",
+        "stability": "Stable",
+        "version": "v1.0",
+        "advantages": [
+            "Parameter-free: zero hyperparameter tuning required.",
+            "Linear time complexity O(d*n) makes it among the fastest anomaly detectors available.",
+            "Highly interpretable dimensional contribution breakdown per outlier.",
+        ],
+        "disadvantages": [
+            "Assumes tail independence across features.",
+        ],
+        "parameters": [
+            _p("contamination", "number", 0.02, "Expected anomaly ratio.", min=0.001, max=0.5, step=0.001),
+        ],
+        "exampleUseCase": "Real-time streaming evaluation of high-throughput payment gateway transactions.",
+    },
+    {
+        "id": "det.anomaly.hbos",
+        "name": "HBOS (Histogram-Based Score)",
+        "category": "anomaly-detection",
+        "oneLine": "Calculates outlier scores by constructing independent static/dynamic feature histograms.",
+        "complexity": "Low",
+        "inputType": "Feature Set",
+        "outputType": "Scores",
+        "stability": "Stable",
+        "version": "v1.2",
+        "advantages": [
+            "Orders of magnitude faster than distance or tree-based algorithms.",
+            "Ideal for ultra-high speed streaming fraud filtering.",
+        ],
+        "disadvantages": [
+            "Ignores feature correlations completely due to independence assumption.",
+        ],
+        "parameters": [
+            _p("nBins", "integer", 20, "Number of histogram bins per feature.", min=5, max=100, step=5),
+            _p("alpha", "number", 0.1, "Regularizer for bin width.", min=0.01, max=0.5, step=0.01),
+        ],
+        "exampleUseCase": "First-pass rapid filter dropping 90% of clearly normal transactions in milliseconds.",
+    },
+    {
+        "id": "det.anomaly.pca-anomaly",
+        "name": "PCA Outlier Detection",
+        "category": "anomaly-detection",
+        "oneLine": "Measures projection distance of data points onto low-variance principal component directions.",
+        "complexity": "Medium",
+        "inputType": "Feature Set",
+        "outputType": "Scores",
+        "stability": "Stable",
+        "version": "v1.0",
+        "advantages": [
+            "Detects structural covariance breakdown in complex multi-variate transactions.",
+            "Simple, well-understood mathematical foundation.",
+        ],
+        "disadvantages": [
+            "Sensitive to non-linear correlations.",
+        ],
+        "parameters": [
+            _p("nComponents", "integer", 5, "Number of eigenvectors kept.", min=1, max=20, step=1),
+        ],
+        "exampleUseCase": "Flags institutional wire transfers with unusual combinations of currency swap parameters.",
+    },
+    {
+        "id": "det.anomaly.knn-outlier",
+        "name": "k-NN Outlier Score",
+        "category": "anomaly-detection",
+        "oneLine": "Uses distance to the k-th nearest neighbor as a direct anomaly score.",
+        "complexity": "Medium",
+        "inputType": "Vector",
+        "outputType": "Scores",
+        "stability": "Stable",
+        "version": "v1.1",
+        "advantages": [
+            "Intuitive concept: isolated points far from all neighbors receive high scores.",
+            "No training step required.",
+        ],
+        "disadvantages": [
+            "Distance matrix computation scales quadratic with transaction volume.",
+        ],
+        "parameters": [
+            _p("k", "integer", 10, "k-th neighbor distance to measure.", min=1, max=100, step=1),
+            _p("method", "enum", "mean", "Score calculation metric.", options=["mean", "median", "largest"]),
+        ],
+        "exampleUseCase": "Pinpoints rogue online credit applications placed from isolated geographical coordinates.",
+    },
+    {
+        "id": "det.anomaly.deep-svdd",
+        "name": "Deep SVDD",
+        "category": "anomaly-detection",
+        "oneLine": "Neural network mapping normal data into a minimal volume hypersphere centered in latent space.",
+        "complexity": "High",
+        "inputType": "Feature Set",
+        "outputType": "Scores",
+        "stability": "Beta",
+        "version": "v0.8",
+        "advantages": [
+            "Jointly learns feature representations and anomaly detection hypersphere boundary.",
+            "Handles high-dimensional image, voice, or text payload features.",
+        ],
+        "disadvantages": [
+            "Subject to hypersphere collapse if weights or biases are improperly initialized.",
+        ],
+        "parameters": [
+            _p("nu", "number", 0.05, "Outlier fraction bound.", min=0.001, max=0.2, step=0.001),
+            _p("networkArchitecture", "enum", "dense-3layer", "Neural architecture.", options=["dense-3layer", "dense-5layer"]),
+        ],
+        "exampleUseCase": "Detects subtle synthetic identity fraud embedded in complex biometric & behavioral vectors.",
+    },
+
+    # ───────────────────────── CLASSIFICATION (10) ───────────────────────────
     {
         "id": "det.class.xgboost",
         "name": "XGBoost",
@@ -488,22 +885,165 @@ REGISTRY: list[dict[str, Any]] = [
         ],
         "exampleUseCase": "A robust fallback scorer when the boosted model is being retrained or audited.",
     },
+    {
+        "id": "det.class.catboost",
+        "name": "CatBoost Classifier",
+        "category": "classification",
+        "oneLine": "Symmetric gradient boosting with native target statistics handling categorical fraud data.",
+        "complexity": "High",
+        "inputType": "Feature Set",
+        "outputType": "Scores",
+        "stability": "Stable",
+        "version": "v1.2",
+        "advantages": [
+            "Best-in-class performance on datasets containing raw un-encoded categoricals.",
+            "Reduces overfitting risk through ordered boosting techniques.",
+            "Provides ultra-fast GPU scoring latency.",
+        ],
+        "disadvantages": [
+            "Training can be memory-intensive on large parameter search grids.",
+        ],
+        "parameters": [
+            _p("iterations", "integer", 500, "Number of tree building iterations.", min=50, max=2000, step=50),
+            _p("depth", "integer", 6, "Depth of symmetric trees.", min=2, max=12, step=1),
+            _p("learningRate", "number", 0.05, "Shrinkage rate.", min=0.001, max=0.5, step=0.005),
+        ],
+        "exampleUseCase": "Directly ingests raw merchant, device, and card bin categoricals to predict fraud.",
+    },
+    {
+        "id": "det.class.svc",
+        "name": "Support Vector Classifier (SVC)",
+        "category": "classification",
+        "oneLine": "Supervised max-margin classifier mapping decision boundaries in high-dimensional kernel space.",
+        "complexity": "High",
+        "inputType": "Feature Set",
+        "outputType": "Scores",
+        "stability": "Stable",
+        "version": "v1.1",
+        "advantages": [
+            "Effective in high-dimensional spaces where feature count exceeds sample count.",
+            "Versatile choice of kernel functions (RBF, Polynomial, Sigmoid).",
+        ],
+        "disadvantages": [
+            "Does not directly provide probability estimates (requires Platt scaling).",
+            "Slow to train on datasets larger than 50,000 samples.",
+        ],
+        "parameters": [
+            _p("C", "number", 1.0, "Regularization parameter.", min=0.1, max=50.0, step=0.5),
+            _p("kernel", "enum", "rbf", "Kernel type.", options=["rbf", "linear", "poly"]),
+        ],
+        "exampleUseCase": "Classifies high-risk account takeover attempts based on behavioral telemetry vectors.",
+    },
+    {
+        "id": "det.class.naive-bayes",
+        "name": "Naive Bayes Classifier",
+        "category": "classification",
+        "oneLine": "Fast probabilistic classifier applying Bayes theorem under strong feature independence assumptions.",
+        "complexity": "Low",
+        "inputType": "Feature Set",
+        "outputType": "Scores",
+        "stability": "Stable",
+        "version": "v1.0",
+        "advantages": [
+            "Extremely fast to train and predict in real-time online setups.",
+            "Requires small training data volumes to estimate parameters.",
+        ],
+        "disadvantages": [
+            "Assumes feature independence, which rarely holds true in financial transaction logs.",
+        ],
+        "parameters": [
+            _p("varSmoothing", "number", 1e-9, "Portion of largest variance added to variances for stability.", min=1e-11, max=1e-5, step=1e-10),
+        ],
+        "exampleUseCase": "Generates initial baseline probability scores for email & domain fraud signals.",
+    },
+    {
+        "id": "det.class.extra-trees",
+        "name": "Extra Trees Classifier",
+        "category": "classification",
+        "oneLine": "Extremely randomized ensemble trees offering faster computation and reduced variance.",
+        "complexity": "Medium",
+        "inputType": "Feature Set",
+        "outputType": "Scores",
+        "stability": "Stable",
+        "version": "v1.2",
+        "advantages": [
+            "Randomizes cut points for each feature, reducing variance compared to standard Random Forest.",
+            "Faster computation speed due to random split node evaluation.",
+        ],
+        "disadvantages": [
+            "Slightly higher bias than standard Random Forest.",
+        ],
+        "parameters": [
+            _p("nEstimators", "integer", 100, "Number of trees.", min=10, max=1000, step=10),
+            _p("criterion", "enum", "gini", "Split quality criterion.", options=["gini", "entropy", "log_loss"]),
+        ],
+        "exampleUseCase": "Fast ensemble scoring over dense feature sets to detect authorization fraud.",
+    },
+    {
+        "id": "det.class.mlp",
+        "name": "Multi-Layer Perceptron (MLP)",
+        "category": "classification",
+        "oneLine": "Deep feed-forward artificial neural network learning non-linear feature maps for fraud.",
+        "complexity": "High",
+        "inputType": "Feature Set",
+        "outputType": "Scores",
+        "stability": "Beta",
+        "version": "v1.0",
+        "advantages": [
+            "Capable of learning highly complex non-linear decision boundaries.",
+            "Scales well when paired with deep learning GPU acceleration frameworks.",
+        ],
+        "disadvantages": [
+            "Black-box nature requires secondary XAI tools (SHAP/LIME) for regulatory audits.",
+        ],
+        "parameters": [
+            _p("hiddenLayerSizes", "enum", "(100,50)", "Architecture of hidden layers.", options=["(100,50)", "(64,32,16)", "(128,64)"]),
+            _p("alpha", "number", 0.0001, "L2 penalty hyperparameter.", min=0.00001, max=0.01, step=0.0001),
+        ],
+        "exampleUseCase": "Learns multi-layered fraud patterns across cross-border payment networks.",
+    },
+    {
+        "id": "det.class.gradient-boosting",
+        "name": "Gradient Boosting Classifier",
+        "category": "classification",
+        "oneLine": "Classic stage-wise additive model building decision trees on loss function residual gradients.",
+        "complexity": "High",
+        "inputType": "Feature Set",
+        "outputType": "Scores",
+        "stability": "Stable",
+        "version": "v1.3",
+        "advantages": [
+            "High predictive accuracy and strong performance out of the box.",
+            "Supports custom loss functions tailored for asymmetric fraud costs.",
+        ],
+        "disadvantages": [
+            "Sequential tree training cannot be easily parallelized like Random Forest.",
+        ],
+        "parameters": [
+            _p("nEstimators", "integer", 100, "Boosting stages.", min=10, max=500, step=10),
+            _p("subsample", "number", 0.8, "Fraction of samples used for fitting individual base learners.", min=0.5, max=1.0, step=0.05),
+        ],
+        "exampleUseCase": "Produces loss-minimizing risk scores for high-value wire transfers.",
+    },
 ]
 
 ALGORITHM_BY_ID: dict[str, dict[str, Any]] = {a["id"]: a for a in REGISTRY}
 
 
-def algorithms_by_category(category: str) -> list[dict[str, Any]]:
-    """Summary view (no heavy parameter schema) for dropdown population."""
+def algorithms_by_category(category: str, full: bool = True) -> list[dict[str, Any]]:
+    """Summary or detail view for a category."""
     out = []
     for a in REGISTRY:
         if a["category"] == category:
-            out.append({
-                "id": a["id"],
-                "name": a["name"],
-                "oneLine": a["oneLine"],
-                "complexity": a["complexity"],
-                "stability": a["stability"],
-                "version": a["version"],
-            })
+            if full:
+                out.append(a)
+            else:
+                out.append({
+                    "id": a["id"],
+                    "name": a["name"],
+                    "oneLine": a["oneLine"],
+                    "complexity": a["complexity"],
+                    "stability": a["stability"],
+                    "version": a["version"],
+                })
     return out

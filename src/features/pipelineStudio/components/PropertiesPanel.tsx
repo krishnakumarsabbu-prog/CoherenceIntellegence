@@ -187,6 +187,16 @@ function NodeForm({
         />
       )}
 
+      {/* Rule-to-Cluster Interactive Manager for Clustering nodes */}
+      {(data.detectionSubType === "clustering" || (data.algorithmId && data.algorithmId.includes("cluster"))) && (
+        <RuleClusterManagerSection nodeData={data} onChange={onChange} />
+      )}
+
+      {/* Markdown Rules (.md) Input Section */}
+      {(data.defType === "input.markdown-rules" || data.category === "input") && (
+        <MarkdownRuleSection nodeData={data} onChange={onChange} />
+      )}
+
       {/* Description */}
       <Section title="Description">
         <textarea
@@ -553,3 +563,247 @@ function ChevronIcon({ className }: { className?: string }) {
     </svg>
   );
 }
+
+const DEFAULT_MARKDOWN_RULES_TEXT = `## Rule -> Parameters
+
+### ALERT_LOGIN_3075_FRAUDULENT_ISP_B
+- Rule Description: ISP from login is found on customer profile indicating fraud occurred in past 30 days and cust device age < 180 days.
+- Parameter Count: 6
+- Parameters:
+  - IP Carrier
+  - Online Device First Seen
+  - Reject Type Code
+  - Rejected Transaction Indication
+  - Transaction Type
+  - Trx Date
+
+### ALERT_LOGIN_3076_MULTI_ECN_PER_DEVICE_A
+- Rule Description: If an Online Device Id has been used to login by at least 4 users (>= 4 ECNs) within the past 6 hours, then create this alert rule at Login.
+- Parameter Count: 1
+- Parameters:
+  - Transaction Type
+
+### ALERT_LOGIN_3077_FAILED_LOGINS
+- Rule Description: Customer has failed at least 3 logins within the past 24 hours.
+- Parameter Count: 6
+- Parameters:
+  - ActSet Reject Type Code
+  - ActSet Transaction Type
+  - ActSet Trx Date
+  - Main Entity Activity Set
+  - Transaction Type
+  - Trx Date
+
+### ALERT_LOGIN_3079_UNTRUST_ISP_A
+- Rule Description: If ISP is not on the Trusted ISP list from the given user then fire advisory
+- Parameter Count: 4
+- Parameters:
+  - IP Carrier
+  - Reject Type Code
+  - Rejected Transaction Indication
+  - Transaction Type
+
+### RISK_LOGIN_3000_NEW_DVC_A
+- Rule Description: If login from an untrusted device with customer device age <=365 days, then challenge. Bypass delegate users and bypass when a NULL WF DVC_ID is upgraded flag returns TRUE. And bypass low BioCatch scores on browser logins.
+- Parameter Count: 12
+- Parameters:
+  - BIOCATCH_MODEL_SCORE
+  - Customer Type
+  - Is New WFDID Upgraded Device`;
+
+function MarkdownRuleSection({
+  nodeData,
+  onChange,
+}: {
+  nodeData: PipelineNodeData;
+  onChange: (patch: Partial<PipelineNodeData>) => void;
+}) {
+  const initialFile = typeof nodeData.params?.fileName === "string" ? nodeData.params.fileName : "RULE_PARAMETER_MAPPING.md";
+  const initialMd = typeof nodeData.params?.rawMarkdown === "string" ? nodeData.params.rawMarkdown : DEFAULT_MARKDOWN_RULES_TEXT;
+
+  const [fileName, setFileName] = useState<string>(initialFile);
+  const [rawMarkdown, setRawMarkdown] = useState<string>(initialMd);
+  const [parsedCount, setParsedCount] = useState(5);
+  const [uploading, setUploading] = useState(false);
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    setFileName(file.name);
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      const text = (evt.target?.result as string) || "";
+      setRawMarkdown(text);
+      const matches = text.match(/###\s+[^\n]+/g) || [];
+      setParsedCount(matches.length || 1);
+
+      const formData = new FormData();
+      formData.append("file", file);
+      try {
+        const res = await fetch("/api/datasets/upload", {
+          method: "POST",
+          body: formData,
+        });
+        const json = await res.json();
+        onChange({
+          params: {
+            ...(nodeData.params || {}),
+            datasetRef: json.id,
+            fileName: file.name,
+            rawMarkdown: text,
+          },
+        });
+      } catch (err) {
+        console.error("Failed to upload markdown rules", err);
+      } finally {
+        setUploading(false);
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const loadSampleRules = () => {
+    setFileName("RULE_PARAMETER_MAPPING.md");
+    setRawMarkdown(DEFAULT_MARKDOWN_RULES_TEXT);
+    setParsedCount(5);
+    onChange({
+      params: {
+        ...(nodeData.params || {}),
+        datasetRef: "sample-md-rules-001",
+        fileName: "RULE_PARAMETER_MAPPING.md",
+        rawMarkdown: DEFAULT_MARKDOWN_RULES_TEXT,
+      },
+    });
+  };
+
+  return (
+    <Section title="Markdown Rules Source (.md)">
+      <div className="space-y-3">
+        <div className="p-3 rounded-lg bg-canvas-50 border border-canvas-200">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold text-canvas-800 flex items-center gap-1.5 truncate max-w-[170px]">
+              📄 {fileName}
+            </span>
+            <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
+              {parsedCount} Rules
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 mt-2">
+            <label className="btn-primary text-xs !py-1.5 flex-1 cursor-pointer justify-center text-center">
+              {uploading ? "Uploading..." : "Upload .md File"}
+              <input
+                type="file"
+                accept=".md,.markdown,.txt"
+                className="hidden"
+                onChange={handleFileUpload}
+              />
+            </label>
+            <button
+              onClick={loadSampleRules}
+              className="btn-ghost text-xs !py-1.5 text-canvas-700 border border-canvas-200 hover:bg-canvas-100"
+              title="Load default rule mapping"
+            >
+              Preset Rules
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs font-semibold text-canvas-700 mb-1.5">
+            Rule Definitions & Parameters (.md):
+          </label>
+          <textarea
+            value={rawMarkdown}
+            onChange={(e) => {
+              const text = e.target.value;
+              setRawMarkdown(text);
+              const matches = text.match(/###\s+[^\n]+/g) || [];
+              setParsedCount(matches.length || 1);
+            }}
+            onBlur={() => {
+              onChange({
+                params: {
+                  ...(nodeData.params || {}),
+                  rawMarkdown,
+                  fileName,
+                },
+              });
+            }}
+            rows={8}
+            className="input font-mono text-[11px] leading-relaxed resize-none bg-slate-900 text-emerald-400 p-2.5 rounded-md border-slate-800"
+            placeholder="### ALERT_LOGIN_3075_FRAUDULENT_ISP_B&#10;- Rule Description: ...&#10;- Parameter Count: 6..."
+          />
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+function RuleClusterManagerSection({
+  nodeData,
+  onChange,
+}: {
+  nodeData: PipelineNodeData;
+  onChange: (patch: Partial<PipelineNodeData>) => void;
+}) {
+  const customClusters: Record<string, string> =
+    (nodeData.params?.customRuleClusters as Record<string, string>) || {
+      ALERT_LOGIN_3075_FRAUDULENT_ISP_B: "Cluster 1 (ISP Risk)",
+      ALERT_LOGIN_3076_MULTI_ECN_PER_DEVICE_A: "Cluster 2 (Login Velocity)",
+      ALERT_LOGIN_3077_FAILED_LOGINS: "Cluster 2 (Login Velocity)",
+      ALERT_LOGIN_3079_UNTRUST_ISP_A: "Cluster 1 (ISP Risk)",
+      RISK_LOGIN_3000_NEW_DVC_A: "Cluster 3 (BioCatch Risk)",
+    };
+
+  const handleClusterChange = (ruleId: string, newCluster: string) => {
+    const updated = { ...customClusters, [ruleId]: newCluster };
+    onChange({
+      params: {
+        ...(nodeData.params || {}),
+        customRuleClusters: updated,
+      },
+    });
+  };
+
+  return (
+    <Section title="Interactive Rule-to-Cluster Override">
+      <div className="space-y-2.5">
+        <p className="text-[11px] text-canvas-500">
+          Re-assign individual rules to custom clusters. Overrides are saved with this pipeline node.
+        </p>
+        <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+          {Object.entries(customClusters).map(([ruleId, clusterName]) => (
+            <div
+              key={ruleId}
+              className="p-2 rounded-md bg-canvas-50 border border-canvas-200 flex flex-col gap-1 text-xs"
+            >
+              <span className="font-mono font-semibold text-canvas-800 truncate" title={ruleId}>
+                {ruleId}
+              </span>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <span className="text-[10px] text-canvas-500 uppercase font-semibold">
+                  Cluster:
+                </span>
+                <select
+                  value={clusterName}
+                  onChange={(e) => handleClusterChange(ruleId, e.target.value)}
+                  className="input text-xs !py-1 !px-1.5 flex-1 bg-white font-semibold text-accent-700 border-canvas-200"
+                >
+                  <option value="Cluster 1 (ISP Risk)">Cluster 1 (ISP Risk)</option>
+                  <option value="Cluster 2 (Login Velocity)">Cluster 2 (Login Velocity)</option>
+                  <option value="Cluster 3 (BioCatch Risk)">Cluster 3 (BioCatch Risk)</option>
+                  <option value="Cluster 4 (Custom)">Cluster 4 (Custom)</option>
+                </select>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+

@@ -22,49 +22,107 @@ function LiveNodeView({ data, selected }: NodeProps) {
   const status: NodeStatus = (d.status as NodeStatus) ?? "pending";
   const iconPath = CATEGORY_ICON[d.category] ?? "";
 
-  const borderColor =
-    status === "running"
-      ? "#F59E0B"
-      : status === "complete"
-        ? "#10B981"
-        : selected
-          ? meta.accent
-          : "#E5E8ED";
+  const isRunning = status === "running";
+  const isComplete = status === "complete";
 
-  const ring =
-    status === "running"
-      ? "0 0 0 2px #F59E0B55, 0 0 14px rgba(245,158,11,0.35)"
-      : status === "complete"
-        ? "0 0 0 2px #10B98133, 0 4px 12px rgba(16,24,40,0.06)"
-        : undefined;
+  const borderColor = isRunning
+    ? "#F59E0B"
+    : isComplete
+    ? "#10B981"
+    : selected
+    ? meta.accent
+    : "#E2E8F0";
+
+  const glowShadow = isRunning
+    ? "0 0 16px rgba(245, 158, 11, 0.35), 0 4px 12px rgba(245, 158, 11, 0.15)"
+    : isComplete
+    ? "0 4px 14px rgba(16, 185, 129, 0.15)"
+    : "0 2px 8px rgba(0, 0, 0, 0.04)";
 
   return (
     <div
-      className={`relative rounded-lg bg-white border shadow-card transition-all duration-300 ${status === "running" ? "animate-pulse" : ""}`}
-      style={{ borderColor, boxShadow: ring, width: 170 }}
+      className={`relative rounded-2xl bg-white border-2 transition-all duration-300 ${
+        isRunning ? "scale-105" : "hover:shadow-md hover:border-slate-300"
+      }`}
+      style={{
+        borderColor,
+        boxShadow: glowShadow,
+        width: 190,
+      }}
     >
-      <div className="absolute left-0 top-0 bottom-0 w-1 rounded-l-lg" style={{ backgroundColor: meta.accent }} />
-      <div className="flex items-center gap-2 px-3 py-2 rounded-t-lg" style={{ backgroundColor: meta.soft }}>
-        <span className="grid place-items-center w-6 h-6 rounded shrink-0" style={{ backgroundColor: meta.accent, color: "#fff" }}>
-          <svg viewBox="0 0 24 24" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" dangerouslySetInnerHTML={{ __html: iconPath }} />
+      {/* Category Accent Left Line */}
+      <div
+        className="absolute left-0 top-0 bottom-0 w-1.5 rounded-l-2xl"
+        style={{ backgroundColor: isComplete ? "#10B981" : isRunning ? "#F59E0B" : meta.accent }}
+      />
+
+      {/* Header */}
+      <div
+        className="flex items-center gap-2 px-3 py-2 rounded-t-2xl border-b border-slate-100"
+        style={{ backgroundColor: meta.soft }}
+      >
+        <span
+          className="grid place-items-center w-5 h-5 rounded-md shrink-0 text-white shadow-xs"
+          style={{ backgroundColor: meta.accent }}
+        >
+          <svg
+            viewBox="0 0 24 24"
+            className="w-3 h-3"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            dangerouslySetInnerHTML={{ __html: iconPath }}
+          />
         </span>
-        <span className="text-[10px] font-semibold uppercase tracking-wide truncate" style={{ color: meta.accent }}>
+        <span
+          className="text-[9px] font-mono font-bold uppercase tracking-wider truncate"
+          style={{ color: meta.accent }}
+        >
           {meta.label}
         </span>
         <StatusDot status={status} />
       </div>
-      <div className="px-3 py-2">
-        <p className="text-sm font-medium text-canvas-800 leading-tight truncate">{d.label}</p>
-        <p className="text-[10px] text-canvas-400 mt-0.5 capitalize">{status}</p>
+
+      {/* Body */}
+      <div className="px-3 py-2.5 space-y-1">
+        <p className="text-xs font-bold text-slate-800 leading-tight truncate">{d.label}</p>
+        <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono">
+          <span className="truncate max-w-[100px]">{d.algorithmId ? d.algorithmId.split(".").pop() : "Standard"}</span>
+          <span
+            className={`font-bold capitalize px-1.5 py-0.2 rounded text-[9px] ${
+              isComplete
+                ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                : isRunning
+                ? "bg-amber-50 text-amber-700 border border-amber-200"
+                : "bg-slate-100 text-slate-500 border border-slate-200"
+            }`}
+          >
+            {status}
+          </span>
+        </div>
       </div>
-      <Handle type="target" position={Position.Top} className="!w-2.5 !h-2.5 !border-2 !border-white" style={{ background: meta.accent }} />
-      <Handle type="source" position={Position.Bottom} className="!w-2.5 !h-2.5 !border-2 !border-white" style={{ background: meta.accent }} />
+
+      <Handle
+        type="target"
+        position={Position.Top}
+        className="!w-3 !h-3 !border-2 !border-white"
+        style={{ background: isComplete ? "#10B981" : meta.accent }}
+      />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        className="!w-3 !h-3 !border-2 !border-white"
+        style={{ background: isComplete ? "#10B981" : meta.accent }}
+      />
     </div>
   );
 }
 
 function StatusDot({ status }: { status: NodeStatus }) {
-  if (status === "pending") return <span className="ml-auto w-2 h-2 rounded-full bg-canvas-200" />;
+  if (status === "pending")
+    return <span className="ml-auto w-2 h-2 rounded-full bg-slate-300" />;
   if (status === "running")
     return (
       <span className="ml-auto relative flex w-2.5 h-2.5">
@@ -72,7 +130,9 @@ function StatusDot({ status }: { status: NodeStatus }) {
         <span className="relative inline-flex w-2.5 h-2.5 rounded-full bg-amber-500" />
       </span>
     );
-  return <span className="ml-auto w-2.5 h-2.5 rounded-full bg-emerald-500" />;
+  return (
+    <span className="ml-auto w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-xs" />
+  );
 }
 
 export default memo(LiveNodeView);

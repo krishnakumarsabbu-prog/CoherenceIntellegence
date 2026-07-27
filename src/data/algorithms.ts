@@ -30,11 +30,9 @@ export interface ParamDef {
   name: string;
   type: ParamType;
   default: number | string | boolean;
-  /** For number/integer: min/max/step. */
   min?: number;
   max?: number;
   step?: number;
-  /** For enum: allowed options. */
   options?: string[];
   hint: string;
 }
@@ -43,6 +41,7 @@ export interface AlgorithmDef {
   id: string;
   name: string;
   tab: AlgorithmTab;
+  category?: string;
   oneLine: string;
   complexity: Complexity;
   inputType: IOType;
@@ -87,11 +86,12 @@ export const ALGORITHM_TABS: Array<{
 ];
 
 export const ALGORITHMS: AlgorithmDef[] = [
-  // ───────────────────────── FEATURE ENGINEERING ─────────────────────────
+  // ───────────────────────── FEATURE ENGINEERING (10) ─────────────────────────
   {
     id: "feat.velocity-features",
     name: "Velocity Features",
     tab: "feature-engineering",
+    category: "feature-engineering",
     oneLine:
       "Derives rate-of-change signals over short rolling windows (count, sum, distinct merchants).",
     complexity: "Low",
@@ -140,6 +140,7 @@ export const ALGORITHMS: AlgorithmDef[] = [
     id: "feat.aggregation-window",
     name: "Aggregation Window Features",
     tab: "feature-engineering",
+    category: "feature-engineering",
     oneLine:
       "Builds time-windowed aggregates (mean, max, std) over customer / merchant history.",
     complexity: "Low",
@@ -187,6 +188,7 @@ export const ALGORITHMS: AlgorithmDef[] = [
     id: "feat.mutual-information-selection",
     name: "Mutual Information Selection",
     tab: "feature-engineering",
+    category: "feature-engineering",
     oneLine:
       "Ranks features by mutual information with the fraud label to drop irrelevant ones.",
     complexity: "Medium",
@@ -236,6 +238,7 @@ export const ALGORITHMS: AlgorithmDef[] = [
     id: "feat.pca",
     name: "PCA",
     tab: "feature-engineering",
+    category: "feature-engineering",
     oneLine:
       "Linear dimensionality reduction via principal components for dense numeric features.",
     complexity: "Medium",
@@ -284,6 +287,7 @@ export const ALGORITHMS: AlgorithmDef[] = [
     id: "feat.chi-square-selection",
     name: "Chi-Square Selection",
     tab: "feature-engineering",
+    category: "feature-engineering",
     oneLine:
       "Selects non-negative categorical features by chi-square independence with the label.",
     complexity: "Low",
@@ -321,12 +325,200 @@ export const ALGORITHMS: AlgorithmDef[] = [
     exampleUseCase:
       "Keeps the 15 merchant-category flags most associated with confirmed chargebacks.",
   },
+  {
+    id: "feat.target-encoding",
+    name: "Target Encoding",
+    tab: "feature-engineering",
+    category: "feature-engineering",
+    oneLine:
+      "Encodes high-cardinality categoricals using smoothed mean target fraud rates.",
+    complexity: "Medium",
+    inputType: "Tabular",
+    outputType: "Feature Set",
+    stability: "Stable",
+    version: "v1.1",
+    advantages: [
+      "Replaces high-cardinality columns (e.g. zip codes, merchant IDs) with informative 1D floats.",
+      "Uses Bayesian smoothing to prevent extreme estimates on rare categories.",
+      "Dramatically speeds up tree and linear models without massive sparse matrices.",
+    ],
+    disadvantages: [
+      "Prone to target leakage if not fitted strictly inside cross-validation splits.",
+      "Requires historical label availability to compute credible target priors.",
+    ],
+    parameters: [
+      {
+        name: "smoothing",
+        type: "number",
+        default: 10.0,
+        min: 1.0,
+        max: 100.0,
+        step: 1.0,
+        hint: "Weight assigned to global mean relative to category mean.",
+      },
+      {
+        name: "cvFolds",
+        type: "integer",
+        default: 5,
+        min: 2,
+        max: 10,
+        step: 1,
+        hint: "Out-of-fold splits for target encoding to prevent leakage.",
+      },
+    ],
+    exampleUseCase:
+      "Transforms 250,000 raw merchant IDs into smoothed historical fraud rate numbers.",
+  },
+  {
+    id: "feat.polynomial-features",
+    name: "Polynomial Features",
+    tab: "feature-engineering",
+    category: "feature-engineering",
+    oneLine:
+      "Generates feature cross-products and powers for capturing non-linear interactions.",
+    complexity: "Medium",
+    inputType: "Feature Set",
+    outputType: "Feature Set",
+    stability: "Stable",
+    version: "v1.0",
+    advantages: [
+      "Exposes multiplicative terms like (amount * velocity) to simple linear models.",
+      "Deterministic and fast to evaluate during online scoring.",
+    ],
+    disadvantages: [
+      "Causes explosive feature dimension growth (O(d^degree)).",
+      "Creates collinearity that requires downstream regularisation.",
+    ],
+    parameters: [
+      {
+        name: "degree",
+        type: "integer",
+        default: 2,
+        min: 2,
+        max: 4,
+        step: 1,
+        hint: "Maximum polynomial degree.",
+      },
+      {
+        name: "interactionOnly",
+        type: "boolean",
+        default: true,
+        hint: "Produce interaction terms only (exclude self-powers).",
+      },
+    ],
+    exampleUseCase:
+      "Creates an explicit cross-feature between transaction distance and time of day.",
+  },
+  {
+    id: "feat.tfidf-vectorizer",
+    name: "TF-IDF Vectorizer",
+    tab: "feature-engineering",
+    category: "feature-engineering",
+    oneLine:
+      "Extracts term frequency-inverse document frequency features from transaction memos & titles.",
+    complexity: "Medium",
+    inputType: "Tabular",
+    outputType: "Embedding",
+    stability: "Stable",
+    version: "v1.2",
+    advantages: [
+      "Surfaces suspicious keyword combinations in wire transfer memo text.",
+      "Downweights common noise words while emphasizing rare fraud indicators.",
+    ],
+    disadvantages: [
+      "Does not capture semantic word order or deep contextual meaning.",
+      "Generates sparse outputs that require linear or tree models suited for high-dimensionality.",
+    ],
+    parameters: [
+      {
+        name: "maxFeatures",
+        type: "integer",
+        default: 500,
+        min: 50,
+        max: 5000,
+        step: 50,
+        hint: "Maximum number of vocabulary terms to retain.",
+      },
+      {
+        name: "ngramRange",
+        type: "enum",
+        default: "1-2",
+        options: ["1-1", "1-2", "1-3"],
+        hint: "N-gram word tuples to consider.",
+      },
+    ],
+    exampleUseCase:
+      "Converts wire payment descriptions into term weight vectors to flag crypto purchase scams.",
+  },
+  {
+    id: "feat.frequency-encoding",
+    name: "Frequency Encoding",
+    tab: "feature-engineering",
+    category: "feature-engineering",
+    oneLine:
+      "Maps categorical values to their normalized occurrence counts across the dataset.",
+    complexity: "Low",
+    inputType: "Tabular",
+    outputType: "Feature Set",
+    stability: "Stable",
+    version: "v1.0",
+    advantages: [
+      "Completely unsupervised method suitable for live streaming feeds.",
+      "Captures rarity of categorical attributes without risk of target leakage.",
+    ],
+    disadvantages: [
+      "Categories with identical frequencies map to the exact same value.",
+      "Does not inform the model whether a frequency is good or bad by itself.",
+    ],
+    parameters: [
+      {
+        name: "normalize",
+        type: "boolean",
+        default: true,
+        hint: "Normalize raw counts to fractions of total rows.",
+      },
+    ],
+    exampleUseCase:
+      "Identifies rare IP subnets and device user-agents based on low dataset frequencies.",
+  },
+  {
+    id: "feat.robust-scaler",
+    name: "Robust Feature Scaler",
+    tab: "feature-engineering",
+    category: "feature-engineering",
+    oneLine:
+      "Scales numeric features using statistics robust to severe financial outliers (IQR/Median).",
+    complexity: "Low",
+    inputType: "Feature Set",
+    outputType: "Feature Set",
+    stability: "Stable",
+    version: "v1.1",
+    advantages: [
+      "Prevents multi-million dollar wire outliers from crushing standard scaler variances.",
+      "Centers data at median rather than mean, maintaining natural distributions.",
+    ],
+    disadvantages: [
+      "Outliers remain un-bounded in scaled space (unlike MinMax scaling).",
+    ],
+    parameters: [
+      {
+        name: "quantileRange",
+        type: "enum",
+        default: "25-75",
+        options: ["25-75", "10-90", "5-95"],
+        hint: "Interquartile percentile range used for scaling.",
+      },
+    ],
+    exampleUseCase:
+      "Prepares highly skewed transaction amount distributions for neural network models.",
+  },
 
-  // ───────────────────────────── CLUSTERING ──────────────────────────────
+  // ───────────────────────────── CLUSTERING (10) ──────────────────────────────
   {
     id: "det.cluster.dbscan",
     name: "DBSCAN",
     tab: "clustering",
+    category: "clustering",
     oneLine:
       "Density-based clustering that finds arbitrarily shaped clusters and marks low-density points as noise.",
     complexity: "Medium",
@@ -378,6 +570,7 @@ export const ALGORITHMS: AlgorithmDef[] = [
     id: "det.cluster.hdbscan",
     name: "HDBSCAN",
     tab: "clustering",
+    category: "clustering",
     oneLine:
       "Hierarchical density clustering that auto-selects clusters across varying densities.",
     complexity: "High",
@@ -428,6 +621,7 @@ export const ALGORITHMS: AlgorithmDef[] = [
     id: "det.cluster.graph-community",
     name: "Graph-Based Community Detection",
     tab: "clustering",
+    category: "clustering",
     oneLine:
       "Builds a transaction / entity graph and detects communities to expose fraud networks.",
     complexity: "High",
@@ -477,6 +671,7 @@ export const ALGORITHMS: AlgorithmDef[] = [
     id: "det.cluster.kmeans",
     name: "KMeans (baseline)",
     tab: "clustering",
+    category: "clustering",
     oneLine:
       "Partitions transactions into k centroid-based clusters; used as a fast baseline.",
     complexity: "Low",
@@ -533,12 +728,257 @@ export const ALGORITHMS: AlgorithmDef[] = [
     exampleUseCase:
       "Establishes a baseline behavioural segmentation before comparing HDBSCAN ring output.",
   },
+  {
+    id: "det.cluster.agglomerative",
+    name: "Agglomerative Clustering",
+    tab: "clustering",
+    category: "clustering",
+    oneLine:
+      "Hierarchical bottom-up tree clustering that iteratively merges nearest clusters.",
+    complexity: "Medium",
+    inputType: "Vector",
+    outputType: "Labels",
+    stability: "Stable",
+    version: "v1.1",
+    advantages: [
+      "Builds a full dendrogram revealing hierarchical relationships among entity cohorts.",
+      "Supports arbitrary distance metrics and linkage criteria.",
+    ],
+    disadvantages: [
+      "O(n^3) time complexity makes raw scaling to massive transaction volumes slow.",
+      "Once two items are merged early, the decision cannot be undone.",
+    ],
+    parameters: [
+      {
+        name: "nClusters",
+        type: "integer",
+        default: 5,
+        min: 2,
+        max: 50,
+        step: 1,
+        hint: "Number of clusters to find.",
+      },
+      {
+        name: "linkage",
+        type: "enum",
+        default: "ward",
+        options: ["ward", "complete", "average", "single"],
+        hint: "Linkage criterion.",
+      },
+    ],
+    exampleUseCase:
+      "Hierarchy exploration of merchant spending behaviors across sub-industries.",
+  },
+  {
+    id: "det.cluster.gmm",
+    name: "Gaussian Mixture Models (GMM)",
+    tab: "clustering",
+    category: "clustering",
+    oneLine:
+      "Probabilistic soft clustering assigning probability distributions over component Gaussian distributions.",
+    complexity: "High",
+    inputType: "Vector",
+    outputType: "Scores",
+    stability: "Stable",
+    version: "v1.3",
+    advantages: [
+      "Provides soft cluster membership probabilities rather than strict hard labels.",
+      "Allows elliptical clusters of varying shapes and orientations.",
+    ],
+    disadvantages: [
+      "Sensitive to initial parameters; EM algorithm can get stuck in local optima.",
+      "Requires specifying the number of components in advance.",
+    ],
+    parameters: [
+      {
+        name: "nComponents",
+        type: "integer",
+        default: 6,
+        min: 2,
+        max: 30,
+        step: 1,
+        hint: "Number of Gaussian components.",
+      },
+      {
+        name: "covarianceType",
+        type: "enum",
+        default: "full",
+        options: ["full", "tied", "diag", "spherical"],
+        hint: "Type of covariance parameters.",
+      },
+    ],
+    exampleUseCase:
+      "Estimates posterior probability of a transaction belonging to legitimate high-value customer clusters.",
+  },
+  {
+    id: "det.cluster.optics",
+    name: "OPTICS",
+    tab: "clustering",
+    category: "clustering",
+    oneLine:
+      "Ordering points to identify cluster structure, handling multi-density spatial structures.",
+    complexity: "High",
+    inputType: "Vector",
+    outputType: "Labels",
+    stability: "Beta",
+    version: "v0.9",
+    advantages: [
+      "Does not require a strict global eps parameter like standard DBSCAN.",
+      "Produces a reachability plot showing density levels across all scales.",
+    ],
+    disadvantages: [
+      "Higher memory and execution time requirements than DBSCAN.",
+    ],
+    parameters: [
+      {
+        name: "minSamples",
+        type: "integer",
+        default: 5,
+        min: 2,
+        max: 50,
+        step: 1,
+        hint: "Number of samples in a neighborhood for a point to be a core point.",
+      },
+      {
+        name: "maxEps",
+        type: "number",
+        default: 2.0,
+        min: 0.1,
+        max: 10.0,
+        step: 0.1,
+        hint: "Maximum distance between two samples.",
+      },
+    ],
+    exampleUseCase:
+      "Detects ATM cash-out clusters across urban centers with vastly different transaction densities.",
+  },
+  {
+    id: "det.cluster.spectral",
+    name: "Spectral Clustering",
+    tab: "clustering",
+    category: "clustering",
+    oneLine:
+      "Uses spectrum of graph Laplacian matrix to perform non-linear manifold clustering.",
+    complexity: "High",
+    inputType: "Graph",
+    outputType: "Labels",
+    stability: "Beta",
+    version: "v1.0",
+    advantages: [
+      "Discovers highly complex non-convex cluster shapes in graph embedding space.",
+      "Effective for network graph connectivity clustering.",
+    ],
+    disadvantages: [
+      "Eigen-decomposition of similarity matrix is computationally expensive for n > 20,000.",
+    ],
+    parameters: [
+      {
+        name: "nClusters",
+        type: "integer",
+        default: 8,
+        min: 2,
+        max: 50,
+        step: 1,
+        hint: "Number of clusters to extract.",
+      },
+      {
+        name: "affinity",
+        type: "enum",
+        default: "rbf",
+        options: ["rbf", "nearest_neighbors"],
+        hint: "Affinity matrix construction method.",
+      },
+    ],
+    exampleUseCase:
+      "Groups interconnected device fingerprint networks to unearth coordinated bot farms.",
+  },
+  {
+    id: "det.cluster.bisecting-kmeans",
+    name: "Bisecting KMeans",
+    tab: "clustering",
+    category: "clustering",
+    oneLine:
+      "Hierarchical divisive algorithm splitting clusters using fast repeated k=2 KMeans.",
+    complexity: "Low",
+    inputType: "Vector",
+    outputType: "Labels",
+    stability: "Stable",
+    version: "v1.1",
+    advantages: [
+      "Faster and more consistent than standard KMeans on large datasets.",
+      "Produces a structured cluster hierarchy while remaining computationally cheap.",
+    ],
+    disadvantages: [
+      "Still constrained by spherical cluster geometry assumptions.",
+    ],
+    parameters: [
+      {
+        name: "nClusters",
+        type: "integer",
+        default: 10,
+        min: 2,
+        max: 100,
+        step: 1,
+        hint: "Total number of leaf clusters.",
+      },
+      {
+        name: "bisectingStrategy",
+        type: "enum",
+        default: "biggest_cluster",
+        options: ["biggest_cluster", "largest_sse"],
+        hint: "Which cluster to split next.",
+      },
+    ],
+    exampleUseCase:
+      "Fast segmentation of customer transaction profiles for real-time risk tiers.",
+  },
+  {
+    id: "det.cluster.mean-shift",
+    name: "Mean Shift",
+    tab: "clustering",
+    category: "clustering",
+    oneLine:
+      "Non-parametric mode-seeking algorithm discovering cluster centers by updating candidate points.",
+    complexity: "High",
+    inputType: "Vector",
+    outputType: "Labels",
+    stability: "Stable",
+    version: "v1.0",
+    advantages: [
+      "Does not require specifying number of clusters in advance.",
+      "Finds arbitrary mode centers determined purely by data density.",
+    ],
+    disadvantages: [
+      "Bandwidth parameter selection heavily impacts output cluster quality.",
+      "Computationally intensive on high-dimensional vectors.",
+    ],
+    parameters: [
+      {
+        name: "bandwidth",
+        type: "number",
+        default: 1.5,
+        min: 0.1,
+        max: 10.0,
+        step: 0.1,
+        hint: "Kernel bandwidth parameter.",
+      },
+      {
+        name: "binSeeding",
+        type: "boolean",
+        default: true,
+        hint: "Discretize initial seeds to accelerate convergence.",
+      },
+    ],
+    exampleUseCase:
+      "Locates geographical hotspots of compromised POS terminal swipe locations.",
+  },
 
-  // ──────────────────────── ANOMALY DETECTION ────────────────────────────
+  // ──────────────────────── ANOMALY DETECTION (10) ────────────────────────────
   {
     id: "det.anomaly.isolation-forest",
     name: "Isolation Forest",
     tab: "anomaly-detection",
+    category: "anomaly-detection",
     oneLine:
       "Isolates anomalies via random partition trees; anomalies need fewer splits to separate.",
     complexity: "Medium",
@@ -590,6 +1030,7 @@ export const ALGORITHMS: AlgorithmDef[] = [
     id: "det.anomaly.lof",
     name: "Local Outlier Factor (LOF)",
     tab: "anomaly-detection",
+    category: "anomaly-detection",
     oneLine:
       "Scores local density deviation; flags points much sparser than their neighbours.",
     complexity: "Medium",
@@ -641,6 +1082,7 @@ export const ALGORITHMS: AlgorithmDef[] = [
     id: "det.anomaly.autoencoder",
     name: "Autoencoder",
     tab: "anomaly-detection",
+    category: "anomaly-detection",
     oneLine:
       "Neural net trained to reconstruct normal data; high reconstruction error signals fraud.",
     complexity: "High",
@@ -701,6 +1143,7 @@ export const ALGORITHMS: AlgorithmDef[] = [
     id: "det.anomaly.one-class-svm",
     name: "One-Class SVM",
     tab: "anomaly-detection",
+    category: "anomaly-detection",
     oneLine:
       "Learns a boundary around normal data in kernel space; points outside are anomalies.",
     complexity: "High",
@@ -746,12 +1189,241 @@ export const ALGORITHMS: AlgorithmDef[] = [
     exampleUseCase:
       "Boundaries the normal spending region for a merchant portfolio; out-of-region txns are flagged.",
   },
+  {
+    id: "det.anomaly.elliptic-envelope",
+    name: "Elliptic Envelope (MCD)",
+    tab: "anomaly-detection",
+    category: "anomaly-detection",
+    oneLine:
+      "Fits a robust covariance envelope assuming Gaussian-distributed legitimate transaction features.",
+    complexity: "Medium",
+    inputType: "Feature Set",
+    outputType: "Scores",
+    stability: "Stable",
+    version: "v1.1",
+    advantages: [
+      "Extremely fast calculation for continuous feature matrices.",
+      "Robust against extreme outliers due to Minimum Covariance Determinant fitting.",
+    ],
+    disadvantages: [
+      "Assumes features follow unimodal Gaussian distributions; fails on multi-modal data.",
+    ],
+    parameters: [
+      {
+        name: "contamination",
+        type: "number",
+        default: 0.03,
+        min: 0.001,
+        max: 0.2,
+        step: 0.001,
+        hint: "Expected proportion of outliers.",
+      },
+      {
+        name: "assumeCentered",
+        type: "boolean",
+        default: false,
+        hint: "Assume data is pre-centered around origin.",
+      },
+    ],
+    exampleUseCase:
+      "Detects anomalous transfer amounts and frequencies in standardized corporate payroll runs.",
+  },
+  {
+    id: "det.anomaly.copod",
+    name: "COPOD (Copula Outlier Detection)",
+    tab: "anomaly-detection",
+    category: "anomaly-detection",
+    oneLine:
+      "Fast parameter-free anomaly detector estimating empirical copula tail probabilities.",
+    complexity: "Low",
+    inputType: "Feature Set",
+    outputType: "Scores",
+    stability: "Stable",
+    version: "v1.0",
+    advantages: [
+      "Parameter-free: zero hyperparameter tuning required.",
+      "Linear time complexity O(d*n) makes it among the fastest anomaly detectors available.",
+      "Highly interpretable dimensional contribution breakdown per outlier.",
+    ],
+    disadvantages: [
+      "Assumes tail independence across features.",
+    ],
+    parameters: [
+      {
+        name: "contamination",
+        type: "number",
+        default: 0.02,
+        min: 0.001,
+        max: 0.5,
+        step: 0.001,
+        hint: "Expected anomaly ratio.",
+      },
+    ],
+    exampleUseCase:
+      "Real-time streaming evaluation of high-throughput payment gateway transactions.",
+  },
+  {
+    id: "det.anomaly.hbos",
+    name: "HBOS (Histogram-Based Score)",
+    tab: "anomaly-detection",
+    category: "anomaly-detection",
+    oneLine:
+      "Calculates outlier scores by constructing independent static/dynamic feature histograms.",
+    complexity: "Low",
+    inputType: "Feature Set",
+    outputType: "Scores",
+    stability: "Stable",
+    version: "v1.2",
+    advantages: [
+      "Orders of magnitude faster than distance or tree-based algorithms.",
+      "Ideal for ultra-high speed streaming fraud filtering.",
+    ],
+    disadvantages: [
+      "Ignores feature correlations completely due to independence assumption.",
+    ],
+    parameters: [
+      {
+        name: "nBins",
+        type: "integer",
+        default: 20,
+        min: 5,
+        max: 100,
+        step: 5,
+        hint: "Number of histogram bins per feature.",
+      },
+      {
+        name: "alpha",
+        type: "number",
+        default: 0.1,
+        min: 0.01,
+        max: 0.5,
+        step: 0.01,
+        hint: "Regularizer for bin width.",
+      },
+    ],
+    exampleUseCase:
+      "First-pass rapid filter dropping 90% of clearly normal transactions in milliseconds.",
+  },
+  {
+    id: "det.anomaly.pca-anomaly",
+    name: "PCA Outlier Detection",
+    tab: "anomaly-detection",
+    category: "anomaly-detection",
+    oneLine:
+      "Measures projection distance of data points onto low-variance principal component directions.",
+    complexity: "Medium",
+    inputType: "Feature Set",
+    outputType: "Scores",
+    stability: "Stable",
+    version: "v1.0",
+    advantages: [
+      "Detects structural covariance breakdown in complex multi-variate transactions.",
+      "Simple, well-understood mathematical foundation.",
+    ],
+    disadvantages: [
+      "Sensitive to non-linear correlations.",
+    ],
+    parameters: [
+      {
+        name: "nComponents",
+        type: "integer",
+        default: 5,
+        min: 1,
+        max: 20,
+        step: 1,
+        hint: "Number of eigenvectors kept.",
+      },
+    ],
+    exampleUseCase:
+      "Flags institutional wire transfers with unusual combinations of currency swap parameters.",
+  },
+  {
+    id: "det.anomaly.knn-outlier",
+    name: "k-NN Outlier Score",
+    tab: "anomaly-detection",
+    category: "anomaly-detection",
+    oneLine:
+      "Uses distance to the k-th nearest neighbor as a direct anomaly score.",
+    complexity: "Medium",
+    inputType: "Vector",
+    outputType: "Scores",
+    stability: "Stable",
+    version: "v1.1",
+    advantages: [
+      "Intuitive concept: isolated points far from all neighbors receive high scores.",
+      "No training step required.",
+    ],
+    disadvantages: [
+      "Distance matrix computation scales quadratic with transaction volume.",
+    ],
+    parameters: [
+      {
+        name: "k",
+        type: "integer",
+        default: 10,
+        min: 1,
+        max: 100,
+        step: 1,
+        hint: "k-th neighbor distance to measure.",
+      },
+      {
+        name: "method",
+        type: "enum",
+        default: "mean",
+        options: ["mean", "median", "largest"],
+        hint: "Score calculation metric.",
+      },
+    ],
+    exampleUseCase:
+      "Pinpoints rogue online credit applications placed from isolated geographical coordinates.",
+  },
+  {
+    id: "det.anomaly.deep-svdd",
+    name: "Deep SVDD",
+    tab: "anomaly-detection",
+    category: "anomaly-detection",
+    oneLine:
+      "Neural network mapping normal data into a minimal volume hypersphere centered in latent space.",
+    complexity: "High",
+    inputType: "Feature Set",
+    outputType: "Scores",
+    stability: "Beta",
+    version: "v0.8",
+    advantages: [
+      "Jointly learns feature representations and anomaly detection hypersphere boundary.",
+      "Handles high-dimensional image, voice, or text payload features.",
+    ],
+    disadvantages: [
+      "Subject to hypersphere collapse if weights or biases are improperly initialized.",
+    ],
+    parameters: [
+      {
+        name: "nu",
+        type: "number",
+        default: 0.05,
+        min: 0.001,
+        max: 0.2,
+        step: 0.001,
+        hint: "Outlier fraction bound.",
+      },
+      {
+        name: "networkArchitecture",
+        type: "enum",
+        default: "dense-3layer",
+        options: ["dense-3layer", "dense-5layer"],
+        hint: "Neural architecture.",
+      },
+    ],
+    exampleUseCase:
+      "Detects subtle synthetic identity fraud embedded in complex biometric & behavioral vectors.",
+  },
 
-  // ───────────────────────── CLASSIFICATION ─────────────────────────────
+  // ───────────────────────── CLASSIFICATION (10) ───────────────────────────
   {
     id: "det.class.xgboost",
     name: "XGBoost",
     tab: "classification",
+    category: "classification",
     oneLine:
       "Gradient-boosted trees; strong, widely-used supervised fraud scorer.",
     complexity: "High",
@@ -814,6 +1486,7 @@ export const ALGORITHMS: AlgorithmDef[] = [
     id: "det.class.lightgbm",
     name: "LightGBM",
     tab: "classification",
+    category: "classification",
     oneLine:
       "Leaf-wise gradient boosting; faster and more memory-efficient than XGBoost on large data.",
     complexity: "High",
@@ -876,6 +1549,7 @@ export const ALGORITHMS: AlgorithmDef[] = [
     id: "det.class.logistic-regression",
     name: "Logistic Regression",
     tab: "classification",
+    category: "classification",
     oneLine:
       "Linear fraud / not-fraud classifier; the explainable, audit-friendly baseline.",
     complexity: "Low",
@@ -934,6 +1608,7 @@ export const ALGORITHMS: AlgorithmDef[] = [
     id: "det.class.random-forest",
     name: "Random Forest",
     tab: "classification",
+    category: "classification",
     oneLine:
       "Bagged decision trees; robust, low-tuning supervised scorer with good explainability.",
     complexity: "Medium",
@@ -986,54 +1661,252 @@ export const ALGORITHMS: AlgorithmDef[] = [
     exampleUseCase:
       "A robust fallback scorer when the boosted model is being retrained or audited.",
   },
-];
-
-export const ALGORITHM_BY_ID: Record<string, AlgorithmDef> = ALGORITHMS.reduce(
-  (acc, a) => {
-    acc[a.id] = a;
-    return acc;
+  {
+    id: "det.class.catboost",
+    name: "CatBoost Classifier",
+    tab: "classification",
+    category: "classification",
+    oneLine:
+      "Symmetric gradient boosting with native target statistics handling categorical fraud data.",
+    complexity: "High",
+    inputType: "Feature Set",
+    outputType: "Scores",
+    stability: "Stable",
+    version: "v1.2",
+    advantages: [
+      "Best-in-class performance on datasets containing raw un-encoded categoricals.",
+      "Reduces overfitting risk through ordered boosting techniques.",
+      "Provides ultra-fast GPU scoring latency.",
+    ],
+    disadvantages: [
+      "Training can be memory-intensive on large parameter search grids.",
+    ],
+    parameters: [
+      {
+        name: "iterations",
+        type: "integer",
+        default: 500,
+        min: 50,
+        max: 2000,
+        step: 50,
+        hint: "Number of tree building iterations.",
+      },
+      {
+        name: "depth",
+        type: "integer",
+        default: 6,
+        min: 2,
+        max: 12,
+        step: 1,
+        hint: "Depth of symmetric trees.",
+      },
+      {
+        name: "learningRate",
+        type: "number",
+        default: 0.05,
+        min: 0.001,
+        max: 0.5,
+        step: 0.005,
+        hint: "Shrinkage rate.",
+      },
+    ],
+    exampleUseCase:
+      "Directly ingests raw merchant, device, and card bin categoricals to predict fraud.",
   },
-  {} as Record<string, AlgorithmDef>,
-);
-
-export function algorithmsForTab(tab: AlgorithmTab): AlgorithmDef[] {
-  return ALGORITHMS.filter((a) => a.tab === tab);
-}
-
-/**
- * Map a palette node defType (e.g. "det.cluster.dbscan") to its algorithm
- * definition. For detection nodes the defType doubles as the algorithm id;
- * feature nodes also share ids with their algorithm entries.
- */
-export function algorithmForDefType(defType: string): AlgorithmDef | undefined {
-  return ALGORITHM_BY_ID[defType];
-}
-
-/**
- * Algorithms available for a given detection sub-type, used by the Properties
- * panel algorithm-choice dropdown when a detection node is dropped.
- */
-export function algorithmsForDetectionSubType(
-  subType: "clustering" | "anomaly" | "classification",
-): AlgorithmDef[] {
-  const tabMap: Record<typeof subType, AlgorithmTab> = {
-    clustering: "clustering",
-    anomaly: "anomaly-detection",
-    classification: "classification",
-  };
-  return algorithmsForTab(tabMap[subType]);
-}
-
-/**
- * Build the default parameter values object for an algorithm, used to seed a
- * node's params when it is first instantiated.
- */
-export function defaultParamsFor(algorithmId: string): Record<string, unknown> {
-  const algo = ALGORITHM_BY_ID[algorithmId];
-  if (!algo) return {};
-  const out: Record<string, unknown> = {};
-  for (const p of algo.parameters) {
-    out[p.name] = p.default;
-  }
-  return out;
-}
+  {
+    id: "det.class.svc",
+    name: "Support Vector Classifier (SVC)",
+    tab: "classification",
+    category: "classification",
+    oneLine:
+      "Supervised max-margin classifier mapping decision boundaries in high-dimensional kernel space.",
+    complexity: "High",
+    inputType: "Feature Set",
+    outputType: "Scores",
+    stability: "Stable",
+    version: "v1.1",
+    advantages: [
+      "Effective in high-dimensional spaces where feature count exceeds sample count.",
+      "Versatile choice of kernel functions (RBF, Polynomial, Sigmoid).",
+    ],
+    disadvantages: [
+      "Does not directly provide probability estimates (requires Platt scaling).",
+      "Slow to train on datasets larger than 50,000 samples.",
+    ],
+    parameters: [
+      {
+        name: "C",
+        type: "number",
+        default: 1.0,
+        min: 0.1,
+        max: 50.0,
+        step: 0.5,
+        hint: "Regularization parameter.",
+      },
+      {
+        name: "kernel",
+        type: "enum",
+        default: "rbf",
+        options: ["rbf", "linear", "poly"],
+        hint: "Kernel type.",
+      },
+    ],
+    exampleUseCase:
+      "Classifies high-risk account takeover attempts based on behavioral telemetry vectors.",
+  },
+  {
+    id: "det.class.naive-bayes",
+    name: "Naive Bayes Classifier",
+    tab: "classification",
+    category: "classification",
+    oneLine:
+      "Fast probabilistic classifier applying Bayes theorem under strong feature independence assumptions.",
+    complexity: "Low",
+    inputType: "Feature Set",
+    outputType: "Scores",
+    stability: "Stable",
+    version: "v1.0",
+    advantages: [
+      "Extremely fast to train and predict in real-time online setups.",
+      "Requires small training data volumes to estimate parameters.",
+    ],
+    disadvantages: [
+      "Assumes feature independence, which rarely holds true in financial transaction logs.",
+    ],
+    parameters: [
+      {
+        name: "varSmoothing",
+        type: "number",
+        default: 1e-9,
+        min: 1e-11,
+        max: 1e-5,
+        step: 1e-10,
+        hint: "Portion of largest variance added to variances for stability.",
+      },
+    ],
+    exampleUseCase:
+      "Generates initial baseline probability scores for email & domain fraud signals.",
+  },
+  {
+    id: "det.class.extra-trees",
+    name: "Extra Trees Classifier",
+    tab: "classification",
+    category: "classification",
+    oneLine:
+      "Extremely randomized ensemble trees offering faster computation and reduced variance.",
+    complexity: "Medium",
+    inputType: "Feature Set",
+    outputType: "Scores",
+    stability: "Stable",
+    version: "v1.2",
+    advantages: [
+      "Randomizes cut points for each feature, reducing variance compared to standard Random Forest.",
+      "Faster computation speed due to random split node evaluation.",
+    ],
+    disadvantages: [
+      "Slightly higher bias than standard Random Forest.",
+    ],
+    parameters: [
+      {
+        name: "nEstimators",
+        type: "integer",
+        default: 100,
+        min: 10,
+        max: 1000,
+        step: 10,
+        hint: "Number of trees.",
+      },
+      {
+        name: "criterion",
+        type: "enum",
+        default: "gini",
+        options: ["gini", "entropy", "log_loss"],
+        hint: "Split quality criterion.",
+      },
+    ],
+    exampleUseCase:
+      "Fast ensemble scoring over dense feature sets to detect authorization fraud.",
+  },
+  {
+    id: "det.class.mlp",
+    name: "Multi-Layer Perceptron (MLP)",
+    tab: "classification",
+    category: "classification",
+    oneLine:
+      "Deep feed-forward artificial neural network learning non-linear feature maps for fraud.",
+    complexity: "High",
+    inputType: "Feature Set",
+    outputType: "Scores",
+    stability: "Beta",
+    version: "v1.0",
+    advantages: [
+      "Capable of learning highly complex non-linear decision boundaries.",
+      "Scales well when paired with deep learning GPU acceleration frameworks.",
+    ],
+    disadvantages: [
+      "Black-box nature requires secondary XAI tools (SHAP/LIME) for regulatory audits.",
+    ],
+    parameters: [
+      {
+        name: "hiddenLayerSizes",
+        type: "enum",
+        default: "(100,50)",
+        options: ["(100,50)", "(64,32,16)", "(128,64)"],
+        hint: "Architecture of hidden layers.",
+      },
+      {
+        name: "alpha",
+        type: "number",
+        default: 0.0001,
+        min: 0.00001,
+        max: 0.01,
+        step: 0.0001,
+        hint: "L2 penalty hyperparameter.",
+      },
+    ],
+    exampleUseCase:
+      "Learns multi-layered fraud patterns across cross-border payment networks.",
+  },
+  {
+    id: "det.class.gradient-boosting",
+    name: "Gradient Boosting Classifier",
+    tab: "classification",
+    category: "classification",
+    oneLine:
+      "Classic stage-wise additive model building decision trees on loss function residual gradients.",
+    complexity: "High",
+    inputType: "Feature Set",
+    outputType: "Scores",
+    stability: "Stable",
+    version: "v1.3",
+    advantages: [
+      "High predictive accuracy and strong performance out of the box.",
+      "Supports custom loss functions tailored for asymmetric fraud costs.",
+    ],
+    disadvantages: [
+      "Sequential tree training cannot be easily parallelized like Random Forest.",
+    ],
+    parameters: [
+      {
+        name: "nEstimators",
+        type: "integer",
+        default: 100,
+        min: 10,
+        max: 500,
+        step: 10,
+        hint: "Boosting stages.",
+      },
+      {
+        name: "subsample",
+        type: "number",
+        default: 0.8,
+        min: 0.5,
+        max: 1.0,
+        step: 0.05,
+        hint: "Fraction of samples used for fitting individual base learners.",
+      },
+    ],
+    exampleUseCase:
+      "Produces loss-minimizing risk scores for high-value wire transfers.",
+  },
+];

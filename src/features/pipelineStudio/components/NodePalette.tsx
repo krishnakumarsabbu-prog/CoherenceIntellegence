@@ -3,7 +3,6 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   CATEGORY_META,
   CATEGORY_ORDER,
-  DETECTION_SUBTYPE_LABELS,
   NODE_CATALOG,
 } from "../catalog";
 import type { NodeCategory, PaletteNodeDef } from "../types";
@@ -88,22 +87,15 @@ export default function NodePalette({
                       transition={{ duration: 0.18 }}
                       className="overflow-hidden"
                     >
-                      {catId === "detection" ? (
-                        <DetectionGroups
-                          items={items}
-                          onDragStart={onDragStart}
-                        />
-                      ) : (
-                        <div className="pt-1 pb-1.5 space-y-1">
-                          {items.map((def) => (
-                            <PaletteItem
-                              key={def.type}
-                              def={def}
-                              onDragStart={onDragStart}
-                            />
-                          ))}
-                        </div>
-                      )}
+                      <div className="pt-1 pb-1.5 space-y-1">
+                        {items.map((def) => (
+                          <PaletteItem
+                            key={def.type}
+                            def={def}
+                            onDragStart={onDragStart}
+                          />
+                        ))}
+                      </div>
                     </motion.div>
                   )}
                 </AnimatePresence>
@@ -113,42 +105,6 @@ export default function NodePalette({
         </div>
       </div>
     </motion.aside>
-  );
-}
-
-function DetectionGroups({
-  items,
-  onDragStart,
-}: {
-  items: PaletteNodeDef[];
-  onDragStart: (defType: string) => void;
-}) {
-  const groups: Array<{ key: string; label: string; items: PaletteNodeDef[] }> =
-    ["clustering", "anomaly", "classification"].map((key) => ({
-      key,
-      label: DETECTION_SUBTYPE_LABELS[key],
-      items: items.filter((n) => n.detectionSubType === key),
-    }));
-
-  return (
-    <div className="pt-1 pb-1.5">
-      {groups.map((g) => (
-        <div key={g.key} className="mb-1.5">
-          <p className="px-2.5 py-1 text-[10px] font-medium text-canvas-400 uppercase tracking-wide">
-            {g.label}
-          </p>
-          <div className="space-y-1">
-            {g.items.map((def) => (
-              <PaletteItem
-                key={def.type}
-                def={def}
-                onDragStart={onDragStart}
-              />
-            ))}
-          </div>
-        </div>
-      ))}
-    </div>
   );
 }
 

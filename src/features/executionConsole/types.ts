@@ -35,6 +35,21 @@ export interface FlaggedRow {
   amount: number;
   country: string;
   is_fraud: boolean;
+  tx_freq_1h?: number;
+  geo_velocity?: number;
+  device_risk_score?: number;
+  fraud_reason?: string;
+  risk_tier?: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
+}
+
+export interface RuleClusterMapping {
+  rule_id: string;
+  cluster_id: number;
+  cluster_label: string;
+  rule_description: string;
+  parameter_count: number;
+  parameters: string;
+  risk_level: string;
 }
 
 export interface ExecutionResults {
@@ -43,6 +58,8 @@ export interface ExecutionResults {
   flagged_over_time: FlaggedOverTimePoint[];
   flagged_rows: FlaggedRow[];
   detection_nodes: { id: string; label: string; algorithm: string | null }[];
+  rule_clusters?: RuleClusterMapping[];
+  node_telemetry?: Record<string, any>;
 }
 
 export interface ExecutionRecord {

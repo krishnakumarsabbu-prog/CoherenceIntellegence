@@ -61,7 +61,7 @@ export interface CategoryMeta {
 }
 
 export interface ValidationIssue {
-  level: "error" | "warning";
+  level: "error" | "warning" | "info";
   message: string;
 }
 

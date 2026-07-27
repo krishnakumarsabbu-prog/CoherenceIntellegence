@@ -11,9 +11,10 @@ interface Props {
   nodes: PipelineNode[];
   edges: PipelineEdge[];
   progress: NodeProgress[];
+  onNodeClick?: (nodeId: string) => void;
 }
 
-function Graph({ nodes, edges, progress }: Props) {
+function Graph({ nodes, edges, progress, onNodeClick }: Props) {
   const statusById = useMemo(() => {
     const m = new Map<string, NodeProgress["status"]>();
     for (const p of progress) m.set(p.id, p.status);
@@ -28,15 +29,15 @@ function Graph({ nodes, edges, progress }: Props) {
         data: { ...n.data, status: statusById.get(n.id) ?? "pending" },
         draggable: false,
         connectable: false,
-        selectable: false,
+        selectable: true,
       })),
     [nodes, statusById],
   );
 
   if (nodes.length === 0) {
     return (
-      <div className="grid place-items-center h-full text-center text-canvas-400 text-sm">
-        Select a pipeline on the left and click Run to view the live graph.
+      <div className="grid place-items-center h-full text-center text-slate-400 text-sm">
+        Select a pipeline on the left and click Run to view the live execution flow.
       </div>
     );
   }
@@ -48,25 +49,30 @@ function Graph({ nodes, edges, progress }: Props) {
       nodeTypes={nodeTypes}
       nodesDraggable={false}
       nodesConnectable={false}
-      elementsSelectable={false}
+      elementsSelectable={true}
+      onNodeClick={(_, node) => onNodeClick?.(node.id)}
       panOnDrag
       zoomOnScroll
       fitView
       fitViewOptions={{ padding: 0.25 }}
       proOptions={{ hideAttribution: true }}
-      defaultEdgeOptions={{ type: "smoothstep", style: { stroke: "#A9B0BD", strokeWidth: 1.6 } }}
-      className="bg-canvas-50"
+      defaultEdgeOptions={{
+        type: "smoothstep",
+        style: { stroke: "#94A3B8", strokeWidth: 2.2 },
+        animated: true,
+      }}
+      className="bg-[#F8FAFC] cursor-pointer"
     >
-      <Background variant={BackgroundVariant.Dots} gap={18} size={1.4} color="#D3D8E0" />
-      <Controls showInteractive={false} className="!shadow-card !rounded-md !border !border-canvas-200" />
+      <Background variant={BackgroundVariant.Dots} gap={22} size={1.4} color="#CBD5E1" />
+      <Controls showInteractive={false} className="!bg-white !border-slate-200 !text-slate-700 !rounded-xl !shadow-sm" />
     </ReactFlow>
   );
 }
 
-export default function LivePipelineGraph({ nodes, edges, progress }: Props) {
+export default function LivePipelineGraph({ nodes, edges, progress, onNodeClick }: Props) {
   return (
     <ReactFlowProvider>
-      <Graph nodes={nodes} edges={edges} progress={progress} />
+      <Graph nodes={nodes} edges={edges} progress={progress} onNodeClick={onNodeClick} />
     </ReactFlowProvider>
   );
 }

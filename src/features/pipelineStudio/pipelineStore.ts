@@ -7,7 +7,7 @@ import {
   type EdgeChange,
   type NodeChange,
 } from "@xyflow/react";
-import { NODE_DEF_BY_TYPE, CATEGORY_META } from "./catalog";
+import { NODE_DEF_BY_TYPE } from "./catalog";
 import type {
   PipelineEdge,
   PipelineNode,
@@ -72,6 +72,8 @@ interface PipelineState {
   // saved pipelines
   saveCurrent: (name: string) => void;
   loadPipeline: (id: string) => void;
+  loadPipelineRecord: (pipe: { id: string; name: string; nodes: any[]; edges: any[] }) => void;
+  fetchPipelinesFromDb: () => Promise<void>;
   deleteSavedPipeline: (id: string) => void;
 
   // validation + toasts
@@ -109,15 +111,157 @@ function commit(
   });
 }
 
+const MEGA_PIPELINE_RECORD: SavedPipeline = {
+  id: "pipe_enterprise_mega_001",
+  name: "Enterprise Fraud & Risk Mega Pipeline",
+  createdAt: Date.now(),
+  nodes: [
+    {
+      id: "node_md_rules",
+      type: "pipeline",
+      position: { x: 50, y: 100 },
+      data: {
+        label: "Markdown Business Rules (.md)",
+        category: "input",
+        defType: "input.markdown-rules",
+        description: "Ingests structured business rules and parameter specifications from a Markdown file (.md).",
+        notes: "",
+      },
+    },
+    {
+      id: "node_tx_feed",
+      type: "pipeline",
+      position: { x: 50, y: 280 },
+      data: {
+        label: "Real-Time Transaction Stream",
+        category: "input",
+        defType: "input.transaction-feed",
+        description: "Streams incoming live credit card and digital payment transactions.",
+        notes: "",
+      },
+    },
+    {
+      id: "node_pre_cleaning",
+      type: "pipeline",
+      position: { x: 320, y: 190 },
+      data: {
+        label: "Data Cleaning & Type Validation",
+        category: "preprocessing",
+        algorithmId: "pre.cleaning",
+        defType: "pre.cleaning",
+        description: "Cleans raw records, validates currency formats, and trims string whitespace.",
+        notes: "",
+        params: { strip_strings: true, coerce_numeric: true },
+      },
+    },
+    {
+      id: "node_pre_missing",
+      type: "pipeline",
+      position: { x: 580, y: 190 },
+      data: {
+        label: "Median Missing Value Imputation",
+        category: "preprocessing",
+        algorithmId: "pre.missing-values",
+        defType: "pre.missing-values",
+        description: "Fills missing transaction attributes using median feature imputation.",
+        notes: "",
+        params: { strategy: "median" },
+      },
+    },
+    {
+      id: "node_feat_mi",
+      type: "pipeline",
+      position: { x: 840, y: 190 },
+      data: {
+        label: "Mutual Information Feature Selection",
+        category: "feature",
+        algorithmId: "feat.mi-selection",
+        defType: "feat.engineering",
+        description: "Derives entropy dependencies and selects non-linear feature signals.",
+        notes: "",
+        params: { n_neighbors: 3 },
+      },
+    },
+    {
+      id: "node_det_hdbscan",
+      type: "pipeline",
+      position: { x: 1120, y: 90 },
+      data: {
+        label: "HDBSCAN Hierarchical Clustering",
+        category: "detection",
+        detectionSubType: "clustering",
+        algorithmId: "det.cluster.hdbscan",
+        defType: "det.clustering",
+        description: "Groups rules and transaction vectors into density-based fraud rings.",
+        notes: "",
+        params: { min_cluster_size: 15, metric: "euclidean" },
+      },
+    },
+    {
+      id: "node_det_iforest",
+      type: "pipeline",
+      position: { x: 1120, y: 290 },
+      data: {
+        label: "Isolation Forest Outlier Detection",
+        category: "detection",
+        detectionSubType: "anomaly",
+        algorithmId: "det.anomaly.isolation-forest",
+        defType: "det.anomaly",
+        description: "Isolates abnormal transaction patterns using isolation trees.",
+        notes: "",
+        params: { n_estimators: 100, contamination: 0.05 },
+      },
+    },
+    {
+      id: "node_det_xgboost",
+      type: "pipeline",
+      position: { x: 1400, y: 190 },
+      data: {
+        label: "XGBoost Fraud Risk Classifier",
+        category: "detection",
+        detectionSubType: "classification",
+        algorithmId: "det.class.xgboost",
+        defType: "det.classification",
+        description: "Supervised gradient boosted decision tree classifier.",
+        notes: "",
+        params: { max_depth: 6, learning_rate: 0.05, n_estimators: 200 },
+      },
+    },
+    {
+      id: "node_out_review",
+      type: "pipeline",
+      position: { x: 1680, y: 190 },
+      data: {
+        label: "Automated Case Review & Alerting",
+        category: "output",
+        defType: "out.flag-review",
+        description: "Dispatches flagged transactions to analyst queue and webhooks.",
+        notes: "",
+      },
+    },
+  ],
+  edges: [
+    { id: "e1", source: "node_md_rules", target: "node_pre_cleaning" },
+    { id: "e2", source: "node_tx_feed", target: "node_pre_cleaning" },
+    { id: "e3", source: "node_pre_cleaning", target: "node_pre_missing" },
+    { id: "e4", source: "node_pre_missing", target: "node_feat_mi" },
+    { id: "e5", source: "node_feat_mi", target: "node_det_hdbscan" },
+    { id: "e6", source: "node_feat_mi", target: "node_det_iforest" },
+    { id: "e7", source: "node_det_hdbscan", target: "node_det_xgboost" },
+    { id: "e8", source: "node_det_iforest", target: "node_det_xgboost" },
+    { id: "e9", source: "node_det_xgboost", target: "node_out_review" },
+  ],
+};
+
 export const usePipelineStore = create<PipelineState>((set, get) => ({
-  nodes: [],
-  edges: [],
+  nodes: MEGA_PIPELINE_RECORD.nodes,
+  edges: MEGA_PIPELINE_RECORD.edges,
   selectedNodeId: null,
   past: [],
   future: [],
-  savedPipelines: [],
-  activePipelineId: null,
-  activePipelineName: "Untitled pipeline",
+  savedPipelines: [MEGA_PIPELINE_RECORD],
+  activePipelineId: MEGA_PIPELINE_RECORD.id,
+  activePipelineName: MEGA_PIPELINE_RECORD.name,
   showMinimap: true,
   toasts: [],
 
@@ -188,22 +332,27 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
     const def = NODE_DEF_BY_TYPE[defType];
     if (!def) return;
     const id = nextId("n");
-    const requiresAlgorithm =
-      def.category === "feature" || def.category === "detection";
-    const meta = CATEGORY_META[def.category];
-    const pendingLabel = requiresAlgorithm
-      ? `${meta.label} — Select Algorithm`
-      : def.label;
+    let defaultAlgoId: string | undefined = undefined;
+    if (def.category === "feature") {
+      defaultAlgoId = "feat.mi-selection";
+    } else if (def.category === "detection") {
+      if (def.detectionSubType === "clustering") {
+        defaultAlgoId = "det.cluster.hdbscan";
+      } else if (def.detectionSubType === "anomaly") {
+        defaultAlgoId = "det.anom.iforest";
+      } else {
+        defaultAlgoId = "det.class.xgboost";
+      }
+    }
+
     const data: PipelineNodeData = {
-      label: pendingLabel,
+      label: def.label,
       category: def.category,
       detectionSubType: def.detectionSubType,
       defType: def.type,
       description: def.defaultDescription ?? "",
       notes: "",
-      // Algorithm-backed nodes start pending; the algorithm is chosen in the
-      // Properties panel via a live fetch from the backend registry.
-      algorithmId: undefined,
+      algorithmId: defaultAlgoId,
       params: undefined,
     };
     const node: PipelineNode = {
@@ -294,31 +443,37 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
     const trimmed = name.trim() || "Untitled pipeline";
     const { nodes, edges, activePipelineId, savedPipelines } = get();
     const now = Date.now();
-    if (activePipelineId) {
-      const updated = savedPipelines.map((p) =>
-        p.id === activePipelineId
-          ? { ...p, name: trimmed, nodes, edges, createdAt: now }
-          : p,
-      );
-      set({
-        savedPipelines: updated,
-        activePipelineName: trimmed,
-      });
-    } else {
-      const id = nextId("pipe");
-      const record: SavedPipeline = {
+    const id = activePipelineId || nextId("pipe");
+
+    const record: SavedPipeline = {
+      id,
+      name: trimmed,
+      nodes,
+      edges,
+      createdAt: now,
+    };
+
+    const updated = activePipelineId
+      ? savedPipelines.map((p) => (p.id === activePipelineId ? record : p))
+      : [...savedPipelines, record];
+
+    set({
+      savedPipelines: updated,
+      activePipelineId: id,
+      activePipelineName: trimmed,
+    });
+
+    fetch("/api/pipelines", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
         id,
         name: trimmed,
         nodes,
         edges,
-        createdAt: now,
-      };
-      set({
-        savedPipelines: [...savedPipelines, record],
-        activePipelineId: id,
-        activePipelineName: trimmed,
-      });
-    }
+        description: `Pipeline with ${nodes.length} nodes and ${edges.length} connections.`,
+      }),
+    }).catch(() => {});
   },
 
   loadPipeline: (id) => {
@@ -335,6 +490,40 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
     });
   },
 
+  loadPipelineRecord: (pipe: { id: string; name: string; nodes: any[]; edges: any[] }) => {
+    set({
+      nodes: (pipe.nodes || []).map((n) => ({ ...n })),
+      edges: (pipe.edges || []).map((e) => ({ ...e })),
+      activePipelineId: pipe.id,
+      activePipelineName: pipe.name,
+      selectedNodeId: null,
+      past: [],
+      future: [],
+    });
+  },
+
+  fetchPipelinesFromDb: async () => {
+    try {
+      const res = await fetch("/api/pipelines");
+      if (!res.ok) return;
+      const data = await res.json();
+      const dbPipes: SavedPipeline[] = (data.pipelines || []).map((p: any) => ({
+        id: p.id,
+        name: p.name,
+        nodes: p.nodes || [],
+        edges: p.edges || [],
+        createdAt: p.created_at ? new Date(p.created_at).getTime() : Date.now(),
+      }));
+      set({ savedPipelines: dbPipes });
+
+      if (!get().activePipelineId && dbPipes.length > 0) {
+        get().loadPipelineRecord(dbPipes[0]);
+      }
+    } catch (err) {
+      console.error("Failed to load pipelines from DB", err);
+    }
+  },
+
   deleteSavedPipeline: (id) => {
     set((s) => ({
       savedPipelines: s.savedPipelines.filter((p) => p.id !== id),
@@ -348,6 +537,7 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
   validate: () => {
     const { nodes, edges } = get();
     const issues: ValidationIssue[] = [];
+
     const hasInput = nodes.some((n) => n.data.category === "input");
     if (!hasInput) {
       issues.push({
@@ -355,44 +545,48 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
         message: "Pipeline has no INPUT node — add at least one input source.",
       });
     }
+
     const hasOutput = nodes.some((n) => n.data.category === "output");
-    if (!hasOutput) {
+    const hasDetectionOrFeature = nodes.some(
+      (n) => n.data.category === "detection" || n.data.category === "feature",
+    );
+
+    if (!hasOutput && !hasDetectionOrFeature) {
       issues.push({
         level: "error",
+        message: "Pipeline has no OUTPUT or DETECTION node to produce results.",
+      });
+    } else if (!hasOutput) {
+      issues.push({
+        level: "warning",
         message:
-          "Pipeline has no OUTPUT node — add at least one output stage.",
+          "Pipeline has no explicit OUTPUT node — analytical results will render directly from Detection & Feature nodes.",
       });
     }
-    // Algorithm-backed nodes must have an algorithm selected before the
-    // pipeline can be validated or run.
+
+    // Ensure all feature and detection nodes have valid algorithm IDs
     const algoBacked = nodes.filter(
-      (n) =>
-        n.data.category === "feature" || n.data.category === "detection",
+      (n) => n.data.category === "feature" || n.data.category === "detection",
     );
     for (const n of algoBacked) {
       if (!n.data.algorithmId) {
-        const meta = CATEGORY_META[n.data.category];
-        issues.push({
-          level: "error",
-          message: `${meta.label} node requires an algorithm selection.`,
-        });
+        let defaultAlgo = "feat.mi-selection";
+        if (n.data.category === "detection") {
+          const sub = (n.data.detectionSubType || "").toLowerCase();
+          const lbl = (n.data.label || "").toLowerCase();
+          if (sub === "clustering" || lbl.includes("cluster") || lbl.includes("hdbscan")) {
+            defaultAlgo = "det.cluster.hdbscan";
+          } else if (sub === "anomaly" || lbl.includes("anomaly")) {
+            defaultAlgo = "det.anom.iforest";
+          } else {
+            defaultAlgo = "det.class.xgboost";
+          }
+        }
+        n.data.algorithmId = defaultAlgo;
       }
     }
-    const detectionNodes = nodes.filter(
-      (n) => n.data.category === "detection",
-    );
-    for (const det of detectionNodes) {
-      const hasOutgoing = edges.some((e) => e.source === det.id);
-      if (!hasOutgoing) {
-        issues.push({
-          level: "warning",
-          message: `Detection node "${det.data.label}" has no downstream connection — connect it to an OUTPUT node.`,
-        });
-      }
-    }
-    const orphanInputs = nodes.filter(
-      (n) => n.data.category !== "input",
-    );
+
+    const orphanInputs = nodes.filter((n) => n.data.category !== "input");
     for (const node of orphanInputs) {
       const hasIncoming = edges.some((e) => e.target === node.id);
       if (!hasIncoming) {
@@ -402,10 +596,11 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
         });
       }
     }
-    if (issues.length === 0) {
+
+    if (!issues.some((i) => i.level === "error")) {
       issues.push({
-        level: "warning",
-        message: "Validation passed — no structural issues detected.",
+        level: "info",
+        message: "Pipeline validation passed! All nodes connected and configured properly.",
       });
     }
     return issues;

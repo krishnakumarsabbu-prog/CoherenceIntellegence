@@ -39,6 +39,7 @@ const MAX_SELECT = 3;
 
 export default function PipelineComparisonPage() {
   const savedPipelines = usePipelineStore((s) => s.savedPipelines);
+  const fetchPipelinesFromDb = usePipelineStore((s) => s.fetchPipelinesFromDb);
   const loadSampleDataset = useExecutionStore((s) => s.loadSampleDataset);
   const sampleDataset = useExecutionStore((s) => s.sampleDataset);
 
@@ -55,8 +56,18 @@ export default function PipelineComparisonPage() {
   const [sortMetric, setSortMetric] = useState<SortMetric>("f1");
 
   useEffect(() => {
+    fetchPipelinesFromDb();
     loadSampleDataset();
-  }, [loadSampleDataset]);
+  }, [fetchPipelinesFromDb, loadSampleDataset]);
+
+  // Auto-select pipelines from DB for comparison
+  useEffect(() => {
+    if (savedPipelines.length >= 2 && selectedIds.length === 0) {
+      setSelectedIds(savedPipelines.slice(0, 3).map((p) => p.id));
+    } else if (savedPipelines.length === 1 && selectedIds.length === 0) {
+      setSelectedIds([savedPipelines[0].id]);
+    }
+  }, [savedPipelines, selectedIds]);
 
   useEffect(() => {
     if (sampleDataset && !datasetRef) setDatasetRef(sampleDataset.id);

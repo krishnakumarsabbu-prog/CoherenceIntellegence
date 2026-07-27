@@ -26,11 +26,12 @@ export interface AlgorithmDetail {
   id: string;
   name: string;
   category: string;
+  tab?: string;
   oneLine: string;
-  complexity: string;
+  complexity: "Low" | "Medium" | "High";
   inputType: string;
   outputType: string;
-  stability: string;
+  stability: "Stable" | "Beta";
   version: string;
   advantages: string[];
   disadvantages: string[];
@@ -53,6 +54,18 @@ export function useAlgorithmsForCategory(category: string | undefined) {
         `/algorithms/${category}`,
       ),
     enabled: Boolean(category),
+    staleTime: 60_000,
+  });
+}
+
+/** Live-fetch all algorithms with full details for the Algorithm Library. */
+export function useAllAlgorithmsWithDetails() {
+  return useQuery({
+    queryKey: ["algorithms", "all-full"],
+    queryFn: () =>
+      fetchJson<{ categories: string[]; algorithms: AlgorithmDetail[] }>(
+        `/algorithms?full=true`,
+      ),
     staleTime: 60_000,
   });
 }

@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import FastAPI, File, Form, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -41,6 +41,24 @@ _replay: dict[str, list[dict[str, Any]]] = {}
 _results_cache: dict[str, dict[str, Any]] = {}
 # execution_id -> running task
 _tasks: dict[str, asyncio.Task] = {}
+
+# Maximum number of completed executions to keep in memory caches.
+# Older entries are evicted to prevent unbounded memory growth.
+_MAX_CACHED_EXECUTIONS = 50
+
+
+def _evict_old_caches() -> None:
+    """Evict oldest entries from _replay and _results_cache if over the limit."""
+    if len(_results_cache) > _MAX_CACHED_EXECUTIONS:
+        # Sort by insertion order (dict preserves insertion order in Python 3.7+)
+        to_remove = list(_results_cache.keys())[: len(_results_cache) - _MAX_CACHED_EXECUTIONS]
+        for k in to_remove:
+            _results_cache.pop(k, None)
+            _replay.pop(k, None)
+    if len(_replay) > _MAX_CACHED_EXECUTIONS * 2:
+        to_remove = list(_replay.keys())[: len(_replay) - _MAX_CACHED_EXECUTIONS * 2]
+        for k in to_remove:
+            _replay.pop(k, None)
 
 
 @app.on_event("startup")
@@ -265,6 +283,7 @@ async def _run_execution(
             if msg.get("type") == "complete":
                 results = msg["results"]
                 _results_cache[exec_id] = results
+                _evict_old_caches()
                 db.update_execution_status(
                     exec_id,
                     "completed",
@@ -323,10 +342,10 @@ async def execution_ws(websocket: WebSocket, exec_id: str) -> None:
 
 @app.get("/executions/{exec_id}")
 @app.get("/api/executions/{exec_id}")
-def get_execution(exec_id: str) -> dict[str, Any] | None:
+def get_execution(exec_id: str):
     row = db.get_execution(exec_id)
     if not row:
-        return None
+        raise HTTPException(status_code=404, detail=f"Execution '{exec_id}' not found")
     out: dict[str, Any] = {
         "id": row["id"],
         "pipeline_id": row["pipeline_id"],

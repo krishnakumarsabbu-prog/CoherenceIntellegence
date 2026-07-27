@@ -158,15 +158,86 @@ def execute_feature_engineering(df: pd.DataFrame, node: dict[str, Any]) -> pd.Da
     if "velocity" in algo_id:
         group_by = str(params.get("groupBy", "card_id"))
         col = group_by if group_by in df_out.columns else df_out.columns[0]
-        # Calculate velocity rolling counts and sums per group
-        df_out["velocity_txn_count"] = df_out.groupby(col).cumcount() + 1
-        if "amount" in df_out.columns:
-            df_out["velocity_amount_sum"] = df_out.groupby(col)["amount"].cumsum()
+        window_s = int(params.get("windowSeconds", 300))
+        aggs = str(params.get("aggregations", "count,sum,distinct_merchants"))
+        ts_col = "timestamp" if "timestamp" in df_out.columns else None
+        if ts_col and "amount" in df_out.columns:
+            ts = pd.to_numeric(df_out[ts_col], errors="coerce")
+            df_out = df_out.sort_values(ts_col).reset_index(drop=True)
+            grp = df_out.groupby(col)
+            # Rolling window: count transactions within window_s for each group
+            def _vel_count(g: pd.DataFrame) -> pd.Series:
+                t = pd.to_numeric(g[ts_col], errors="coerce").values
+                a = pd.to_numeric(g["amount"], errors="coerce").fillna(0.0).values
+                counts = np.zeros(len(g))
+                sums = np.zeros(len(g))
+                distinct = np.zeros(len(g))
+                merchants = set()
+                for i in range(len(g)):
+                    lo = i
+                    while lo > 0 and t[lo - 1] >= t[i] - window_s:
+                        lo -= 1
+                    counts[i] = i - lo + 1
+                    sums[i] = a[lo:i + 1].sum()
+                    if "merchant_id" in g.columns:
+                        distinct[i] = g["merchant_id"].iloc[lo:i + 1].nunique()
+                return pd.DataFrame({"vc": counts, "vs": sums, "vd": distinct}, index=g.index)
+            vel = grp.apply(_vel_count)
+            df_out["velocity_txn_count"] = vel["vc"].sort_index().values
+            df_out["velocity_amount_sum"] = vel["vs"].sort_index().values
+            if "distinct_merchants" in aggs and "merchant_id" in df_out.columns:
+                df_out["velocity_distinct_merchants"] = vel["vd"].sort_index().values
         else:
-            df_out["velocity_amount_sum"] = df_out["velocity_txn_count"] * 100.0
+            df_out["velocity_txn_count"] = df_out.groupby(col).cumcount() + 1
+            if "amount" in df_out.columns:
+                df_out["velocity_amount_sum"] = df_out.groupby(col)["amount"].cumsum()
+            else:
+                df_out["velocity_amount_sum"] = df_out["velocity_txn_count"] * 100.0
 
     elif "aggregation-window" in algo_id or "aggregation" in algo_id:
-        if "amount" in df_out.columns:
+        window_h = int(params.get("windowHours", 24))
+        funcs = str(params.get("functions", "mean,max,std"))
+        include_current = bool(params.get("includeCurrent", False))
+        group_by = "card_id" if "card_id" in df_out.columns else df_out.columns[0]
+        ts_col = "timestamp" if "timestamp" in df_out.columns else None
+        if ts_col and "amount" in df_out.columns:
+            df_out = df_out.sort_values(ts_col).reset_index(drop=True)
+            window_s = window_h * 3600
+            grp = df_out.groupby(group_by)
+            def _agg_window(g: pd.DataFrame) -> pd.DataFrame:
+                t = pd.to_numeric(g[ts_col], errors="coerce").values
+                a = pd.to_numeric(g["amount"], errors="coerce").fillna(0.0).values
+                n = len(g)
+                means = np.zeros(n)
+                maxs = np.zeros(n)
+                stds = np.zeros(n)
+                for i in range(n):
+                    lo = i
+                    while lo > 0 and t[lo - 1] >= t[i] - window_s:
+                        lo -= 1
+                    if not include_current:
+                        window_vals = a[lo:i]
+                    else:
+                        window_vals = a[lo:i + 1]
+                    if len(window_vals) > 0:
+                        means[i] = window_vals.mean()
+                        maxs[i] = window_vals.max()
+                        stds[i] = window_vals.std() if len(window_vals) > 1 else 0.0
+                    else:
+                        means[i] = a[i]
+                        maxs[i] = a[i]
+                        stds[i] = 0.0
+                return pd.DataFrame({"am": means, "ax": maxs, "asd": stds}, index=g.index)
+            agg = grp.apply(_agg_window)
+            df_out["agg_amount_mean"] = agg["am"].sort_index().values
+            if "max" in funcs:
+                df_out["agg_amount_max"] = agg["ax"].sort_index().values
+            if "std" in funcs:
+                df_out["agg_amount_std"] = agg["asd"].sort_index().values
+            df_out["agg_amount_zscore"] = (
+                pd.to_numeric(df_out["amount"], errors="coerce").fillna(0.0) - df_out["agg_amount_mean"]
+            ) / (df_out["agg_amount_std"].replace(0, 1.0))
+        elif "amount" in df_out.columns:
             amounts = pd.to_numeric(df_out["amount"], errors="coerce").fillna(0.0)
             mean_val = amounts.mean()
             std_val = amounts.std() or 1.0
@@ -342,9 +413,14 @@ def execute_detection_model(df: pd.DataFrame, node: dict[str, Any]) -> list[floa
                 model = SpectralClustering(n_clusters=max(2, n_c), random_state=42, n_init=5)
                 labels = model.fit_predict(X)
                 counts = pd.Series(labels).value_counts().to_dict()
-                # Rarer clusters are more anomalous; normalise by mean cluster size
+                # Rarer clusters are more anomalous; normalise by mean cluster size.
+                # Guard against all-one-cluster degenerate case by mixing in kNN distance.
                 mean_size = float(n_samples) / max(1, len(counts))
-                raw_scores = np.array([mean_size / max(counts.get(l, 1), 1) for l in labels])
+                rarity_scores = np.array([mean_size / max(counts.get(l, 1), 1) for l in labels])
+                nn = NearestNeighbors(n_neighbors=min(5, n_samples)).fit(X)
+                knn_dist = nn.kneighbors(X)[0].mean(axis=1)
+                # Blend: 60% rarity signal, 40% distance signal for discrimination
+                raw_scores = 0.6 * rarity_scores + 0.4 * knn_dist
             except Exception:
                 # Fallback to KMeans when SpectralClustering fails (e.g. small n)
                 km = KMeans(n_clusters=max(1, n_c), n_init=5, random_state=42)
@@ -401,13 +477,22 @@ def execute_detection_model(df: pd.DataFrame, node: dict[str, Any]) -> list[floa
             model.fit(X)
             raw_scores = -model.score_samples(X)
 
-        elif "autoencoder" in algo_id or "deep" in algo_id:
-            # Truncated SVD / Neural Bottleneck Reconstruction Error Scorer
+        elif "autoencoder" in algo_id:
+            # Truncated SVD bottleneck reconstruction error (autoencoder proxy)
             n_comp = max(1, min(X.shape[1] // 2, X.shape[1] - 1))
             svd = TruncatedSVD(n_components=n_comp, random_state=42)
             X_reduced = svd.fit_transform(X)
             X_reconstructed = svd.inverse_transform(X_reduced)
             raw_scores = np.sum((X - X_reconstructed) ** 2, axis=1)
+
+        elif "deep-svdd" in algo_id or "deep" in algo_id:
+            # Deep SVDD proxy: map to latent space via SVD, then measure distance
+            # to the centroid (hypersphere center). Points far from center are anomalous.
+            n_comp = max(1, min(X.shape[1] // 2, X.shape[1] - 1))
+            svd = TruncatedSVD(n_components=n_comp, random_state=42)
+            X_latent = svd.fit_transform(X)
+            center = X_latent.mean(axis=0)
+            raw_scores = np.linalg.norm(X_latent - center, axis=1)
 
         elif "one-class" in algo_id or "ocsvm" in algo_id:
             nu = float(params.get("nu", 0.05))
@@ -507,7 +592,10 @@ def execute_detection_model(df: pd.DataFrame, node: dict[str, Any]) -> list[floa
                 model.fit(X, y)
                 raw_scores = model.predict_proba(X)[:, 1]
             else:
-                raw_scores = np.zeros(n_samples)
+                raise ValueError(
+                    "XGBoost requires labeled data (is_fraud column with both "
+                    "classes). Add labels or switch to an unsupervised detector."
+                )
 
         elif "lightgbm" in algo_id:
             model = HistGradientBoostingClassifier(max_iter=n_est, max_depth=max_d, learning_rate=lr, random_state=42)
@@ -515,7 +603,11 @@ def execute_detection_model(df: pd.DataFrame, node: dict[str, Any]) -> list[floa
                 model.fit(X, y)
                 raw_scores = model.predict_proba(X)[:, 1]
             else:
-                raw_scores = np.zeros(n_samples)
+                raise ValueError(
+                    "LightGBM (HistGradientBoosting fallback) requires labeled data "
+                    "(is_fraud column with both classes). Add labels or use an "
+                    "unsupervised detector."
+                )
 
         elif "logistic" in algo_id or "regression" in algo_id:
             c_val = float(params.get("C", 1.0))
@@ -524,7 +616,10 @@ def execute_detection_model(df: pd.DataFrame, node: dict[str, Any]) -> list[floa
                 model.fit(X, y)
                 raw_scores = model.predict_proba(X)[:, 1]
             else:
-                raw_scores = np.zeros(n_samples)
+                raise ValueError(
+                    "Logistic Regression requires labeled data (is_fraud column "
+                    "with both classes). Add labels or use an unsupervised detector."
+                )
 
         elif "random-forest" in algo_id or "randomforest" in algo_id:
             model = RandomForestClassifier(n_estimators=n_est, max_depth=max_d, random_state=42)
@@ -532,15 +627,37 @@ def execute_detection_model(df: pd.DataFrame, node: dict[str, Any]) -> list[floa
                 model.fit(X, y)
                 raw_scores = model.predict_proba(X)[:, 1]
             else:
-                raw_scores = np.zeros(n_samples)
+                raise ValueError(
+                    "Random Forest requires labeled data (is_fraud column with "
+                    "both classes). Add labels or use an unsupervised detector."
+                )
 
-        elif "extra-trees" in algo_id or "catboost" in algo_id:
+        elif "catboost" in algo_id:
+            # CatBoost not installed — use HistGradientBoosting as the closest
+            # gradient-boosting fallback (not ExtraTrees, which is a bagging model).
+            model = HistGradientBoostingClassifier(
+                max_iter=n_est, max_depth=max_d, learning_rate=lr, random_state=42
+            )
+            if has_labels:
+                model.fit(X, y)
+                raw_scores = model.predict_proba(X)[:, 1]
+            else:
+                raise ValueError(
+                    "CatBoost (HistGradientBoosting fallback) requires labeled data "
+                    "(is_fraud column with both classes). Add labels or switch to an "
+                    "unsupervised detector."
+                )
+
+        elif "extra-trees" in algo_id:
             model = ExtraTreesClassifier(n_estimators=n_est, max_depth=max_d, random_state=42)
             if has_labels:
                 model.fit(X, y)
                 raw_scores = model.predict_proba(X)[:, 1]
             else:
-                raw_scores = np.zeros(n_samples)
+                raise ValueError(
+                    "ExtraTreesClassifier requires labeled data (is_fraud column "
+                    "with both classes). Add labels or use an unsupervised detector."
+                )
 
         elif "mlp" in algo_id or "neural" in algo_id:
             model = MLPClassifier(hidden_layer_sizes=(64, 32), max_iter=200, random_state=42)
@@ -548,7 +665,10 @@ def execute_detection_model(df: pd.DataFrame, node: dict[str, Any]) -> list[floa
                 model.fit(X, y)
                 raw_scores = model.predict_proba(X)[:, 1]
             else:
-                raw_scores = np.zeros(n_samples)
+                raise ValueError(
+                    "MLP requires labeled data (is_fraud column with both classes). "
+                    "Add labels or use an unsupervised detector."
+                )
 
         elif "gradient-boosting" in algo_id or "boosting" in algo_id:
             model = GradientBoostingClassifier(n_estimators=n_est, max_depth=max_d, learning_rate=lr, random_state=42)
@@ -556,7 +676,10 @@ def execute_detection_model(df: pd.DataFrame, node: dict[str, Any]) -> list[floa
                 model.fit(X, y)
                 raw_scores = model.predict_proba(X)[:, 1]
             else:
-                raw_scores = np.zeros(n_samples)
+                raise ValueError(
+                    "Gradient Boosting requires labeled data (is_fraud column with "
+                    "both classes). Add labels or use an unsupervised detector."
+                )
 
         elif "svc" in algo_id or "support-vector" in algo_id:
             model = SVC(probability=True, random_state=42)
@@ -564,7 +687,10 @@ def execute_detection_model(df: pd.DataFrame, node: dict[str, Any]) -> list[floa
                 model.fit(X, y)
                 raw_scores = model.predict_proba(X)[:, 1]
             else:
-                raw_scores = np.zeros(n_samples)
+                raise ValueError(
+                    "SVC requires labeled data (is_fraud column with both classes). "
+                    "Add labels or use an unsupervised detector."
+                )
 
         elif "naive-bayes" in algo_id:
             model = GaussianNB()
@@ -572,7 +698,10 @@ def execute_detection_model(df: pd.DataFrame, node: dict[str, Any]) -> list[floa
                 model.fit(X, y)
                 raw_scores = model.predict_proba(X)[:, 1]
             else:
-                raw_scores = np.zeros(n_samples)
+                raise ValueError(
+                    "Naive Bayes requires labeled data (is_fraud column with both "
+                    "classes). Add labels or use an unsupervised detector."
+                )
 
         elif "adaboost" in algo_id:
             model = AdaBoostClassifier(n_estimators=n_est, random_state=42)
@@ -580,7 +709,10 @@ def execute_detection_model(df: pd.DataFrame, node: dict[str, Any]) -> list[floa
                 model.fit(X, y)
                 raw_scores = model.predict_proba(X)[:, 1]
             else:
-                raw_scores = np.zeros(n_samples)
+                raise ValueError(
+                    "AdaBoost requires labeled data (is_fraud column with both "
+                    "classes). Add labels or use an unsupervised detector."
+                )
 
         else:
             # Default Gradient Boosted Classifier
@@ -589,7 +721,10 @@ def execute_detection_model(df: pd.DataFrame, node: dict[str, Any]) -> list[floa
                 model.fit(X, y)
                 raw_scores = model.predict_proba(X)[:, 1]
             else:
-                raw_scores = np.zeros(n_samples)
+                raise ValueError(
+                    "Classifier requires labeled data (is_fraud column with both "
+                    "classes). Add labels or use an unsupervised detector."
+                )
 
         return _normalize_scores(raw_scores)
 

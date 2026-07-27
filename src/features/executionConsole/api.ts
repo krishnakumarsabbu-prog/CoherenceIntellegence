@@ -71,18 +71,39 @@ export function openExecutionSocket(
   const wsUrl = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/api/ws/executions/${execId}`;
   let ws: WebSocket | null = null;
   let closed = false;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let reconnectAttempts = 0;
+  const MAX_RECONNECT_ATTEMPTS = 5;
+  const BASE_RECONNECT_DELAY = 1000;
 
   const connect = () => {
     ws = new WebSocket(wsUrl);
+    ws.onopen = () => {
+      reconnectAttempts = 0;
+    };
     ws.onmessage = (ev) => {
       try {
-        onMessage(JSON.parse(ev.data));
+        const msg = JSON.parse(ev.data);
+        if (msg && (msg.type === "complete" || msg.type === "error")) {
+          closed = true;
+        }
+        onMessage(msg);
       } catch {
         /* ignore malformed */
       }
     };
     ws.onclose = () => {
-      if (!closed) onClose?.();
+      if (closed) {
+        onClose?.();
+        return;
+      }
+      if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+        reconnectAttempts++;
+        const delay = BASE_RECONNECT_DELAY * Math.pow(2, reconnectAttempts - 1);
+        reconnectTimer = setTimeout(connect, delay);
+      } else {
+        onClose?.();
+      }
     };
     ws.onerror = () => {
       ws?.close();
@@ -92,6 +113,7 @@ export function openExecutionSocket(
 
   return () => {
     closed = true;
+    if (reconnectTimer) clearTimeout(reconnectTimer);
     ws?.close();
   };
 }

@@ -566,6 +566,113 @@ async def compare_pipelines(body: ComparisonRequest) -> dict[str, Any]:
     return {"results": out}
 
 
+@app.post("/pipelines/compare-stream")
+@app.post("/api/pipelines/compare-stream")
+async def compare_pipelines_stream(body: ComparisonRequest) -> _StreamingResponse:
+    """Run multiple pipelines against the same dataset and stream per-pipeline progress.
+
+    Emits NDJSON events: pipeline_start, artifact_load, node, log, pipeline_complete,
+    and a final comparison_complete with full results for all pipelines.
+    """
+    if not body.pipelines:
+        return _StreamingResponse(iter([json.dumps({"type": "comparison_complete", "results": []}) + "\n"]),
+                                   media_type="application/x-ndjson; charset=utf-8")
+
+    dataset_rows: list[dict[str, Any]] | None = None
+    if body.dataset_ref == SAMPLE_DATASET_ID:
+        dataset_rows = get_sample_dataset()["rows"]
+    elif body.dataset_ref == SAMPLE_MARKDOWN_DATASET_ID or body.dataset_ref == "sample-md-rules-001":
+        dataset_rows = get_sample_markdown_dataset()["rows"]
+    elif body.dataset_ref == TRAIN_DATA_LOG_ID or body.dataset_ref == "train-data-log-001":
+        dataset_rows = get_train_data_log_dataset()["rows"]
+    elif body.dataset_ref and body.dataset_ref.startswith("upload-"):
+        ds = db.get_dataset(body.dataset_ref)
+        if ds and ds.get("rows"):
+            dataset_rows = ds["rows"]  # type: ignore[assignment]
+
+    async def _generator():
+        all_results: list[dict[str, Any]] = []
+        for idx, pipe in enumerate(body.pipelines):
+            pid = pipe.get("id", f"pipe_{idx}")
+            pname = pipe.get("name", f"Pipeline {idx + 1}")
+            yield json.dumps({
+                "type": "pipeline_start",
+                "pipeline_id": pid,
+                "pipeline_name": pname,
+                "index": idx,
+                "total": len(body.pipelines),
+                "message": f"Starting pipeline {idx + 1}/{len(body.pipelines)}: {pname}",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }, ensure_ascii=False) + "\n"
+
+            # Emit artifact loading info for this pipeline
+            artifacts = list_pipeline_artifacts(pid)
+            joblib_files = [a for a in artifacts if a["name"].endswith(".joblib")]
+            rule_files = [a for a in artifacts if a["name"].endswith(".json")]
+            yield json.dumps({
+                "type": "artifact_load",
+                "pipeline_id": pid,
+                "pipeline_name": pname,
+                "index": idx,
+                "artifacts": artifacts,
+                "joblib_files": joblib_files,
+                "rule_files": rule_files,
+                "joblib_count": len(joblib_files),
+                "rule_count": len(rule_files),
+                "total_artifacts": len(artifacts),
+                "message": f"Loading {len(joblib_files)} model artifact(s) and {len(rule_files)} rule config(s) for {pname}",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }, ensure_ascii=False) + "\n"
+
+            summary: dict[str, Any] | None = None
+            full_results: dict[str, Any] | None = None
+            error: str | None = None
+            try:
+                async for msg in run_pipeline(pipe, body.dataset_ref, dataset_rows, None, None):
+                    etype = msg.get("type")
+                    if etype == "complete":
+                        summary = msg["results"]["summary"]
+                        full_results = msg["results"]
+                    elif etype == "error":
+                        error = msg.get("message")
+                    # Forward node and log events with pipeline context
+                    if etype in ("node", "log"):
+                        forwarded = {**msg, "pipeline_id": pid, "pipeline_name": pname, "index": idx}
+                        yield json.dumps(forwarded, ensure_ascii=False) + "\n"
+            except Exception as exc:  # noqa: BLE001
+                error = str(exc)
+
+            all_results.append({
+                "pipeline_id": pid,
+                "pipeline_name": pname,
+                "summary": summary,
+                "results": full_results,
+                "error": error,
+            })
+            yield json.dumps({
+                "type": "pipeline_complete",
+                "pipeline_id": pid,
+                "pipeline_name": pname,
+                "index": idx,
+                "summary": summary,
+                "error": error,
+                "message": f"Pipeline {pname} {'completed' if summary else 'failed'}",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }, ensure_ascii=False) + "\n"
+
+        yield json.dumps({
+            "type": "comparison_complete",
+            "results": all_results,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }, ensure_ascii=False) + "\n"
+
+    return _StreamingResponse(
+        _generator(),
+        media_type="application/x-ndjson; charset=utf-8",
+        headers={"Content-Type": "application/x-ndjson; charset=utf-8"},
+    )
+
+
 @app.post("/pipelines/recommendations")
 @app.post("/api/pipelines/recommendations")
 def recommendations(body: RecommendRequest) -> dict[str, Any]:

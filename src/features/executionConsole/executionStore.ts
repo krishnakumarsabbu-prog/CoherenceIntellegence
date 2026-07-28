@@ -7,9 +7,11 @@ import { create } from "zustand";
 import {
   openExecutionSocket,
   startExecution,
+  getSampleDataset,
+  fetchPipelineArtifacts,
   type ExecuteRequestBody,
+  type ArtifactInfo,
 } from "./api";
-import { getSampleDataset } from "./api";
 import type {
   DatasetInfo,
   ExecutionResults,
@@ -46,8 +48,11 @@ interface ExecutionState {
   completedAt: string | null;
   closeSocket: (() => void) | null;
   sampleDataset: DatasetInfo | null;
+  artifacts: ArtifactInfo[];
+  artifactsLoading: boolean;
 
   loadSampleDataset: () => Promise<void>;
+  loadArtifacts: (pipelineId: string) => Promise<void>;
   run: (pipeline: SavedPipelineShape, datasetRef: string | null, customRow?: Record<string, any> | null) => Promise<void>;
   reset: () => void;
 }
@@ -69,6 +74,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   completedAt: null,
   closeSocket: null,
   sampleDataset: null,
+  artifacts: [],
+  artifactsLoading: false,
 
   loadSampleDataset: async () => {
     if (get().sampleDataset) return;
@@ -77,6 +84,16 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       set({ sampleDataset: ds });
     } catch {
       /* non-fatal */
+    }
+  },
+
+  loadArtifacts: async (pipelineId: string) => {
+    set({ artifactsLoading: true });
+    try {
+      const arts = await fetchPipelineArtifacts(pipelineId);
+      set({ artifacts: arts, artifactsLoading: false });
+    } catch {
+      set({ artifacts: [], artifactsLoading: false });
     }
   },
 

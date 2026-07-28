@@ -123,3 +123,18 @@ export async function fetchResults(execId: string): Promise<ExecutionResults | n
   const ex = await getExecution(execId);
   return ex?.results ?? null;
 }
+
+export interface ArtifactInfo {
+  name: string;
+  path: string;
+  size_bytes: number;
+  modified: number;
+  pipeline_id: string;
+}
+
+export async function fetchPipelineArtifacts(pipelineId: string): Promise<ArtifactInfo[]> {
+  const res = await fetch(`${API_BASE}/pipeline/artifacts/${pipelineId}`);
+  if (!res.ok) throw new Error(`Failed to fetch artifacts (${res.status})`);
+  const data = await res.json();
+  return data.artifacts ?? [];
+}

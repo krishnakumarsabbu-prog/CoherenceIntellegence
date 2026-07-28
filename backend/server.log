@@ -1,10 +1,6 @@
-INFO:     Will watch for changes in these directories: ['/tmp/cc-agent/69334234/project/backend']
-INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
-INFO:     Started reloader process [483] using StatReload
-INFO:     Started server process [486]
+INFO:     Started server process [545]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
-INFO:     127.0.0.1:56412 - "GET /health HTTP/1.1" 200 OK
-INFO:     127.0.0.1:56420 - "GET /pipelines HTTP/1.1" 200 OK
-INFO:     127.0.0.1:51158 - "POST /pipelines/compare-stream HTTP/1.1" 200 OK
-INFO:     127.0.0.1:51170 - "POST /pipelines/compare-stream HTTP/1.1" 200 OK
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:51898 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51906 - "GET /api/pipeline/artifacts/pipe_enterprise_mega_001 HTTP/1.1" 200 OK

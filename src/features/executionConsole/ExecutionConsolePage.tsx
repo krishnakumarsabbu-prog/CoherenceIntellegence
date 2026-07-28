@@ -3,7 +3,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { usePipelineStore } from "../pipelineStudio/pipelineStore";
 import type { SavedPipeline } from "../pipelineStudio/types";
 import { useExecutionStore } from "./executionStore";
-import { uploadDataset } from "./api";
+import { uploadDataset, type ArtifactInfo } from "./api";
+import type { ExecutionResults } from "./types";
 import LivePipelineGraph from "./components/LivePipelineGraph";
 import LogPanel from "./components/LogPanel";
 import ResultsPanel from "./components/ResultsPanel";
@@ -21,6 +22,7 @@ import {
   buildSpark,
   buildFlaggedSpark,
 } from "./components/AnalyticsSections";
+import EnhancedMetricsDashboard from "./components/EnhancedMetricsDashboard";
 import type { DatasetInfo } from "./types";
 
 const containerVariants = {
@@ -38,6 +40,10 @@ export default function ExecutionConsolePage() {
   const loadSampleDataset = useExecutionStore((s) => s.loadSampleDataset);
   const sampleDataset = useExecutionStore((s) => s.sampleDataset);
   const run = useExecutionStore((s) => s.run);
+  const results = useExecutionStore((s) => s.results);
+  const artifacts = useExecutionStore((s) => s.artifacts);
+  const artifactsLoading = useExecutionStore((s) => s.artifactsLoading);
+  const loadArtifacts = useExecutionStore((s) => s.loadArtifacts);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [datasetRef, setDatasetRef] = useState<string | null>(null);
@@ -76,6 +82,10 @@ export default function ExecutionConsolePage() {
       setSelectedId(savedPipelines[0].id);
     }
   }, [savedPipelines, selectedId]);
+
+  useEffect(() => {
+    if (selectedId) loadArtifacts(selectedId);
+  }, [selectedId, loadArtifacts]);
 
   useEffect(() => {
     if (sampleDataset && !datasetRef) setDatasetRef(sampleDataset.id);
@@ -140,7 +150,7 @@ export default function ExecutionConsolePage() {
 
       <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-6">
         <div className="space-y-6 min-w-0">
-          <AnalyticsDashboard selected={selected} />
+          <AnalyticsDashboard selected={selected} results={results} artifacts={artifacts} artifactsLoading={artifactsLoading} pipelineId={selectedId} />
         </div>
         <div className="space-y-6">
           <ActivityFeedSection
@@ -645,11 +655,28 @@ function KpiRow() {
 /* Analytics Dashboard (primary + secondary charts + results)        */
 /* ------------------------------------------------------------------ */
 
-function AnalyticsDashboard({ selected }: { selected: SavedPipeline | null }) {
-  const results = useExecutionStore((s) => s.results);
-
+function AnalyticsDashboard({
+  selected,
+  results,
+  artifacts,
+  artifactsLoading,
+  pipelineId,
+}: {
+  selected: SavedPipeline | null;
+  results: ExecutionResults | null;
+  artifacts: ArtifactInfo[];
+  artifactsLoading: boolean;
+  pipelineId: string | null;
+}) {
   return (
     <motion.div variants={itemVariants} className="space-y-6">
+      <EnhancedMetricsDashboard
+        results={results}
+        artifacts={artifacts}
+        artifactsLoading={artifactsLoading}
+        pipelineId={pipelineId}
+      />
+
       <ExecutionChart results={results} />
       <SecondaryCharts results={results} />
 
@@ -671,23 +698,7 @@ function AnalyticsDashboard({ selected }: { selected: SavedPipeline | null }) {
               />
             )}
           </motion.div>
-        ) : (
-          <motion.div
-            key="idle"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="bg-white rounded-2xl ring-1 ring-gray-200 shadow-sm h-[420px] grid place-items-center text-center p-8"
-          >
-            <div className="space-y-3">
-              <div className="w-16 h-16 rounded-2xl bg-gray-100 grid place-items-center text-3xl mx-auto">📊</div>
-              <p className="text-sm font-bold text-gray-800">Execution Results Dashboard Idle</p>
-              <p className="text-xs text-gray-500 max-w-sm">
-                Select a pipeline and click "Run Analysis" to generate explainable telemetry and populate the analytics dashboard.
-              </p>
-            </div>
-          </motion.div>
-        )}
+        ) : null}
       </AnimatePresence>
     </motion.div>
   );

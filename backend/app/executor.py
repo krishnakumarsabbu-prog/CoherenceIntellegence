@@ -708,7 +708,7 @@ Risk Level: CRITICAL
 
     artifacts = list_pipeline_artifacts(pipeline_id)
     try:
-        import db
+        from . import db
         db.update_pipeline_artifacts(pipeline_id, artifacts)
     except Exception:
         pass

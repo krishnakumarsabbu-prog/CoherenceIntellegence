@@ -167,6 +167,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
               },
             ],
           }));
+          get().loadArtifacts(pipeline.id);
         } else if (msg.type === "error") {
           set((s) => ({
             status: "failed",

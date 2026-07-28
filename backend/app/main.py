@@ -783,6 +783,7 @@ def score_transaction(req: ScoringPayloadRequest) -> dict[str, Any]:
     )
 
 
+@app.get("/pipeline/artifacts/{pipeline_id}")
 @app.get("/api/pipeline/artifacts/{pipeline_id}")
 def get_pipeline_artifacts(pipeline_id: str) -> dict[str, Any]:
     """Retrieve saved model artifacts and versioned rule configs for a pipeline."""

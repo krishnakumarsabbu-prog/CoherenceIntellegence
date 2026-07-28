@@ -35,12 +35,32 @@ export default function ExecutionConsolePage() {
   const fetchPipelinesFromDb = usePipelineStore((s) => s.fetchPipelinesFromDb);
   const loadSampleDataset = useExecutionStore((s) => s.loadSampleDataset);
   const sampleDataset = useExecutionStore((s) => s.sampleDataset);
+  const run = useExecutionStore((s) => s.run);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [datasetRef, setDatasetRef] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadName, setUploadName] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const [showJsonModal, setShowJsonModal] = useState(false);
+  const [customPayload, setCustomPayload] = useState<Record<string, any> | null>(null);
+  const [jsonInput, setJsonInput] = useState<string>(
+    JSON.stringify(
+      {
+        amount: 75000,
+        country: "IN",
+        ip_country: "RU",
+        tx_freq_1h: 12,
+        geo_velocity: 180,
+        device_risk_score: 85,
+        new_device: true,
+        is_blacklisted: false,
+      },
+      null,
+      2,
+    ),
+  );
 
   useEffect(() => {
     fetchPipelinesFromDb();
@@ -68,10 +88,20 @@ export default function ExecutionConsolePage() {
       const ds = await uploadDataset(file);
       setDatasetRef(ds.id);
       setUploadName(ds.name);
+      setCustomPayload(null);
     } catch {
       /* ignore */
     } finally {
       setUploading(false);
+    }
+  };
+
+  const handleApplyAndRunJson = (parsedPayload: Record<string, any>) => {
+    setCustomPayload(parsedPayload);
+    setDatasetRef("custom-json-payload");
+    setUploadName("Single Payload (JSON)");
+    if (selected) {
+      run(selected, "custom-json-payload", parsedPayload);
     }
   };
 
@@ -90,13 +120,16 @@ export default function ExecutionConsolePage() {
         datasetRef={datasetRef}
         uploadName={uploadName}
         sampleDataset={sampleDataset}
+        customPayload={customPayload}
         onUpload={handleUpload}
         uploading={uploading}
         fileRef={fileRef}
         onPickSample={() => {
           setDatasetRef(sampleDataset?.id ?? null);
           setUploadName(null);
+          setCustomPayload(null);
         }}
+        onOpenJsonModal={() => setShowJsonModal(true)}
       />
 
       <KpiRow />
@@ -117,6 +150,14 @@ export default function ExecutionConsolePage() {
       <HistoricalTableSection />
 
       <LiveExecutionSection selected={selected} />
+
+      <JsonPayloadModal
+        isOpen={showJsonModal}
+        onClose={() => setShowJsonModal(false)}
+        jsonInput={jsonInput}
+        setJsonInput={setJsonInput}
+        onApplyAndRun={handleApplyAndRunJson}
+      />
     </motion.div>
   );
 }
@@ -133,10 +174,12 @@ function HeroHeader({
   datasetRef,
   uploadName,
   sampleDataset,
+  customPayload,
   onUpload,
   uploading,
   fileRef,
   onPickSample,
+  onOpenJsonModal,
 }: {
   selected: SavedPipeline | null;
   savedPipelines: SavedPipeline[];
@@ -145,10 +188,12 @@ function HeroHeader({
   datasetRef: string | null;
   uploadName: string | null;
   sampleDataset: DatasetInfo | null;
+  customPayload: Record<string, any> | null;
   onUpload: (file: File) => void;
   uploading: boolean;
   fileRef: React.RefObject<HTMLInputElement>;
   onPickSample: () => void;
+  onOpenJsonModal: () => void;
 }) {
   const status = useExecutionStore((s) => s.status);
   const isLive = status === "running" || status === "starting";
@@ -214,8 +259,13 @@ function HeroHeader({
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
-              <DatasetBadge datasetRef={datasetRef} uploadName={uploadName} sampleDataset={sampleDataset} />
-              <RunButton selected={selected} datasetRef={datasetRef} />
+              <DatasetBadge
+                datasetRef={datasetRef}
+                uploadName={uploadName}
+                sampleDataset={sampleDataset}
+                customPayload={customPayload}
+              />
+              <RunButton selected={selected} datasetRef={datasetRef} customPayload={customPayload} />
             </div>
           </div>
 
@@ -233,6 +283,8 @@ function HeroHeader({
               uploadName={uploadName}
               fileRef={fileRef}
               onUpload={onUpload}
+              onOpenJsonModal={onOpenJsonModal}
+              customPayload={customPayload}
             />
           </div>
         </div>
@@ -241,7 +293,15 @@ function HeroHeader({
   );
 }
 
-function RunButton({ selected, datasetRef }: { selected: SavedPipeline | null; datasetRef: string | null }) {
+function RunButton({
+  selected,
+  datasetRef,
+  customPayload,
+}: {
+  selected: SavedPipeline | null;
+  datasetRef: string | null;
+  customPayload: Record<string, any> | null;
+}) {
   const run = useExecutionStore((s) => s.run);
   const reset = useExecutionStore((s) => s.reset);
   const status = useExecutionStore((s) => s.status);
@@ -266,7 +326,7 @@ function RunButton({ selected, datasetRef }: { selected: SavedPipeline | null; d
         )}
       </AnimatePresence>
       <button
-        onClick={() => selected && datasetRef && run(selected, datasetRef)}
+        onClick={() => selected && datasetRef && run(selected, datasetRef, customPayload)}
         disabled={!canRun}
         className={`px-5 py-2.5 rounded-xl text-xs font-bold tracking-wide transition-all shadow-sm flex items-center gap-2 ${
           isRunning
@@ -296,17 +356,27 @@ function DatasetBadge({
   datasetRef,
   uploadName,
   sampleDataset,
+  customPayload,
 }: {
   datasetRef: string | null;
   uploadName: string | null;
   sampleDataset: DatasetInfo | null;
+  customPayload: Record<string, any> | null;
 }) {
   const isSample = sampleDataset != null && datasetRef === sampleDataset.id;
+  const isCustomJson = datasetRef === "custom-json-payload" || customPayload != null;
+
   return (
     <div className="bg-white/80 backdrop-blur-sm ring-1 ring-gray-200 rounded-xl px-3.5 py-2 font-mono text-xs hidden md:flex flex-col shadow-sm">
       <span className="text-[9px] text-gray-400 uppercase font-bold">Active Dataset</span>
-      <span className="text-gray-800 font-bold mt-0.5 truncate max-w-[180px]">
-        {isSample ? `📊 Sample (${sampleDataset?.row_count} rows)` : uploadName ? `📄 ${uploadName}` : "No Dataset"}
+      <span className="text-gray-800 font-bold mt-0.5 truncate max-w-[190px]">
+        {isCustomJson
+          ? `📝 Custom Payload (1 row)`
+          : isSample
+          ? `📊 Sample (${sampleDataset?.row_count} rows)`
+          : uploadName
+          ? `📄 ${uploadName}`
+          : "No Dataset"}
       </span>
     </div>
   );
@@ -351,6 +421,8 @@ function DatasetQuickActions({
   uploadName,
   fileRef,
   onUpload,
+  onOpenJsonModal,
+  customPayload,
 }: {
   sampleDataset: DatasetInfo | null;
   datasetRef: string | null;
@@ -359,14 +431,18 @@ function DatasetQuickActions({
   uploadName: string | null;
   fileRef: React.RefObject<HTMLInputElement>;
   onUpload: (file: File) => void;
+  onOpenJsonModal: () => void;
+  customPayload: Record<string, any> | null;
 }) {
   const usingSample = sampleDataset != null && datasetRef === sampleDataset.id;
+  const usingCustomPayload = datasetRef === "custom-json-payload" || customPayload != null;
+
   return (
     <div className="flex items-center gap-2">
       <input
         ref={fileRef}
         type="file"
-        accept=".csv"
+        accept=".csv,.xlsx,.xls"
         className="hidden"
         onChange={(e) => {
           const f = e.target.files?.[0];
@@ -379,7 +455,7 @@ function DatasetQuickActions({
         disabled={!sampleDataset}
         className={`px-3 py-2 rounded-xl text-xs font-semibold ring-1 transition-all ${
           usingSample
-            ? "bg-blue-50 text-blue-700 ring-blue-200"
+            ? "bg-blue-50 text-blue-700 ring-blue-200 font-bold"
             : "bg-white/80 backdrop-blur-sm text-gray-700 ring-gray-200 hover:bg-gray-50"
         }`}
       >
@@ -392,8 +468,24 @@ function DatasetQuickActions({
       >
         {uploading ? "Uploading…" : "📥 Upload CSV"}
       </button>
+      <button
+        onClick={onOpenJsonModal}
+        className={`px-3 py-2 rounded-xl text-xs font-bold ring-1 transition-all flex items-center gap-1.5 cursor-pointer ${
+          usingCustomPayload
+            ? "bg-purple-50 text-purple-700 ring-purple-300 shadow-xs font-bold"
+            : "bg-white/80 backdrop-blur-sm text-gray-700 ring-gray-200 hover:bg-gray-50"
+        }`}
+      >
+        <span>📝</span>
+        <span>Single Payload (JSON)</span>
+        {usingCustomPayload && (
+          <span className="w-2 h-2 rounded-full bg-purple-500 animate-pulse" />
+        )}
+      </button>
       {uploadName && !usingSample && (
-        <span className="text-[10px] font-mono text-blue-700 truncate max-w-[120px]">Active: {uploadName}</span>
+        <span className="text-[10px] font-mono text-purple-700 font-bold truncate max-w-[150px]">
+          Active: {uploadName}
+        </span>
       )}
     </div>
   );
@@ -720,5 +812,212 @@ function LiveExecutionSection({ selected }: { selected: SavedPipeline | null }) 
         <LogPanel />
       </div>
     </motion.div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* JSON Payload Modal                                                  */
+/* ------------------------------------------------------------------ */
+
+function JsonPayloadModal({
+  isOpen,
+  onClose,
+  jsonInput,
+  setJsonInput,
+  onApplyAndRun,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  jsonInput: string;
+  setJsonInput: (val: string) => void;
+  onApplyAndRun: (parsedPayload: Record<string, any>) => void;
+}) {
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    try {
+      JSON.parse(jsonInput);
+      setError(null);
+    } catch (e: any) {
+      setError(e.message || "Invalid JSON syntax");
+    }
+  }, [jsonInput]);
+
+  if (!isOpen) return null;
+
+  const handleFormat = () => {
+    try {
+      const parsed = JSON.parse(jsonInput);
+      setJsonInput(JSON.stringify(parsed, null, 2));
+      setError(null);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const handlePreset = (obj: Record<string, any>) => {
+    setJsonInput(JSON.stringify(obj, null, 2));
+    setError(null);
+  };
+
+  const handleSubmit = () => {
+    try {
+      const parsed = JSON.parse(jsonInput);
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        setError("Payload must be a valid JSON object");
+        return;
+      }
+      onApplyAndRun(parsed);
+      onClose();
+    } catch {
+      setError("Please fix JSON syntax errors before submitting");
+    }
+  };
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4"
+      >
+        <motion.div
+          initial={{ scale: 0.95, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          exit={{ scale: 0.95, opacity: 0 }}
+          className="bg-white rounded-2xl ring-1 ring-gray-200 shadow-2xl max-w-xl w-full p-6 space-y-5"
+        >
+          <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+            <div className="flex items-center gap-3">
+              <span className="w-9 h-9 rounded-xl bg-purple-50 text-purple-700 grid place-items-center font-bold text-lg border border-purple-200/60 shadow-xs">
+                📝
+              </span>
+              <div>
+                <h3 className="text-base font-black text-gray-900 tracking-tight">
+                  Single Transaction Payload (JSON)
+                </h3>
+                <p className="text-xs text-gray-500">
+                  Input custom JSON payload to evaluate directly on top of active ML pipeline artifacts.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={onClose}
+              className="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100 transition-colors font-bold text-sm"
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* Quick Presets Bar */}
+          <div className="space-y-1.5">
+            <span className="text-[10px] font-mono font-bold text-gray-400 uppercase tracking-wider block">
+              Quick Scenario Presets
+            </span>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() =>
+                  handlePreset({
+                    amount: 45.2,
+                    country: "US",
+                    ip_country: "US",
+                    tx_freq_1h: 1,
+                    new_device: false,
+                    is_blacklisted: false,
+                  })
+                }
+                className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors"
+              >
+                💳 Legitimate ($45.20)
+              </button>
+              <button
+                onClick={() =>
+                  handlePreset({
+                    amount: 95000,
+                    country: "IN",
+                    ip_country: "RU",
+                    tx_freq_1h: 18,
+                    geo_velocity: 340,
+                    device_risk_score: 92,
+                    new_device: true,
+                    is_blacklisted: false,
+                  })
+                }
+                className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 transition-colors"
+              >
+                🚨 High-Velocity Fraud ($95k)
+              </button>
+              <button
+                onClick={() =>
+                  handlePreset({
+                    amount: 150000,
+                    country: "SG",
+                    ip_country: "KP",
+                    tx_freq_1h: 4,
+                    is_blacklisted: true,
+                  })
+                }
+                className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 transition-colors"
+              >
+                ⛔ Sanction Hard Block ($150k)
+              </button>
+            </div>
+          </div>
+
+          {/* JSON Textarea Editor */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-xs font-mono">
+              <span className="text-gray-500 font-bold">JSON Payload Body</span>
+              {error ? (
+                <span className="text-rose-600 font-semibold text-[11px]">⚠️ {error}</span>
+              ) : (
+                <span className="text-emerald-600 font-semibold text-[11px]">✅ Valid JSON Object</span>
+              )}
+            </div>
+            <textarea
+              value={jsonInput}
+              onChange={(e) => setJsonInput(e.target.value)}
+              rows={9}
+              className={`w-full font-mono text-xs p-3.5 rounded-xl border outline-none transition-all shadow-inner leading-relaxed ${
+                error
+                  ? "bg-rose-50/50 border-rose-300 text-gray-900 focus:border-rose-500"
+                  : "bg-slate-50 border-gray-200 text-gray-900 focus:bg-white focus:border-purple-500"
+              }`}
+              placeholder="Paste JSON object here..."
+            />
+          </div>
+
+          {/* Action Footer */}
+          <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+            <button
+              onClick={handleFormat}
+              className="px-3.5 py-2 rounded-xl text-xs font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors"
+            >
+              ✨ Format JSON
+            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={onClose}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-gray-600 hover:bg-gray-100 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSubmit}
+                disabled={Boolean(error)}
+                className={`px-4 py-2 rounded-xl text-xs font-bold text-white transition-all shadow-md ${
+                  error
+                    ? "bg-gray-300 cursor-not-allowed shadow-none"
+                    : "bg-purple-600 hover:bg-purple-700 active:scale-95 cursor-pointer"
+                }`}
+              >
+                🚀 Apply & Run Analysis
+              </button>
+            </div>
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
   );
 }

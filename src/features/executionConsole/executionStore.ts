@@ -48,7 +48,7 @@ interface ExecutionState {
   sampleDataset: DatasetInfo | null;
 
   loadSampleDataset: () => Promise<void>;
-  run: (pipeline: SavedPipelineShape, datasetRef: string | null) => Promise<void>;
+  run: (pipeline: SavedPipelineShape, datasetRef: string | null, customRow?: Record<string, any> | null) => Promise<void>;
   reset: () => void;
 }
 
@@ -80,7 +80,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     }
   },
 
-  run: async (pipeline, datasetRef) => {
+  run: async (pipeline, datasetRef, customRow) => {
     // Tear down any prior session.
     get().closeSocket?.();
     set({
@@ -104,6 +104,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       pipeline_name: pipeline.name,
       pipeline: { id: pipeline.id, name: pipeline.name, nodes: pipeline.nodes, edges: pipeline.edges },
       dataset_ref: datasetRef,
+      custom_row: customRow ?? null,
     };
 
     try {

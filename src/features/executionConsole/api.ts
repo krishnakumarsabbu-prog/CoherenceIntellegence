@@ -16,6 +16,7 @@ export interface ExecuteRequestBody {
   pipeline_name: string;
   pipeline: SavedPipelineShape;
   dataset_ref?: string | null;
+  custom_row?: Record<string, any> | null;
 }
 
 export async function startExecution(

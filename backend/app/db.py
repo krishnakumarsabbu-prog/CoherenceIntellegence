@@ -227,6 +227,143 @@ def _seed_mega_pipeline(conn: sqlite3.Connection) -> None:
             now,
         ),
     )
+    _seed_bank_hybrid_pipeline(conn)
+
+
+def _seed_bank_hybrid_pipeline(conn: sqlite3.Connection) -> None:
+    """Ensure the Bank-Grade Hybrid Fraud Intelligence Pipeline exists in database."""
+    pipe_id = "pipe_bank_hybrid_fraud_001"
+    row = conn.execute("SELECT id FROM pipelines WHERE id = ?", (pipe_id,)).fetchone()
+    if row:
+        return
+
+    now = datetime.now(timezone.utc).isoformat()
+    nodes = [
+        {
+            "id": "node_rules",
+            "type": "pipeline",
+            "position": {"x": 50, "y": 100},
+            "data": {
+                "label": "Markdown Rule AST Engine",
+                "category": "input",
+                "defType": "input.markdown-rules",
+                "description": "Evaluates Hard/Soft rules and extracts rule_score, rule_hit_count, and hard block triggers.",
+            },
+        },
+        {
+            "id": "node_log_feed",
+            "type": "pipeline",
+            "position": {"x": 50, "y": 280},
+            "data": {
+                "label": "SLR-IFM Integration Log Feed",
+                "category": "input",
+                "defType": "input.transaction-feed",
+                "description": "Parses raw key-value parameter log strings from train_data.xlsx.",
+            },
+        },
+        {
+            "id": "node_pre",
+            "type": "pipeline",
+            "position": {"x": 320, "y": 190},
+            "data": {
+                "label": "Standard Scaler & Preprocessing",
+                "category": "preprocessing",
+                "algorithmId": "pre.scaling",
+                "defType": "pre.scaling",
+                "description": "Normalizes numeric features and rule score vectors.",
+            },
+        },
+        {
+            "id": "node_hdbscan",
+            "type": "pipeline",
+            "position": {"x": 600, "y": 90},
+            "data": {
+                "label": "HDBSCAN Density Clustering",
+                "category": "detection",
+                "detectionSubType": "clustering",
+                "algorithmId": "det.cluster.hdbscan",
+                "defType": "det.clustering",
+                "description": "Groups transactions into behavioral clusters.",
+            },
+        },
+        {
+            "id": "node_iforest",
+            "type": "pipeline",
+            "position": {"x": 600, "y": 290},
+            "data": {
+                "label": "Isolation Forest Outlier Detection",
+                "category": "detection",
+                "detectionSubType": "anomaly",
+                "algorithmId": "det.anomaly.isolation-forest",
+                "defType": "det.anomaly",
+                "description": "Detects statistical transaction outliers.",
+            },
+        },
+        {
+            "id": "node_lightgbm",
+            "type": "pipeline",
+            "position": {"x": 880, "y": 190},
+            "data": {
+                "label": "LightGBM Supervised Fraud Classifier",
+                "category": "detection",
+                "detectionSubType": "classification",
+                "algorithmId": "det.class.lightgbm",
+                "defType": "det.classification",
+                "description": "Calculates supervised fraud probability score.",
+            },
+        },
+        {
+            "id": "node_brain",
+            "type": "pipeline",
+            "position": {"x": 1160, "y": 190},
+            "data": {
+                "label": "CoherenceBrain Explainable Decision Engine",
+                "category": "output",
+                "defType": "out.flag-review",
+                "description": "Synthesizes rules + ML into explainable APPROVE/REVIEW/BLOCK outputs.",
+            },
+        },
+    ]
+
+    edges = [
+        {"id": "e1", "source": "node_rules", "target": "node_pre"},
+        {"id": "e2", "source": "node_log_feed", "target": "node_pre"},
+        {"id": "e3", "source": "node_pre", "target": "node_hdbscan"},
+        {"id": "e4", "source": "node_pre", "target": "node_iforest"},
+        {"id": "e5", "source": "node_hdbscan", "target": "node_lightgbm"},
+        {"id": "e6", "source": "node_iforest", "target": "node_lightgbm"},
+        {"id": "e7", "source": "node_lightgbm", "target": "node_brain"},
+    ]
+
+    conn.execute(
+        """INSERT INTO pipelines (id, name, description, nodes_json, edges_json, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (
+            pipe_id,
+            "Bank-Grade Hybrid Fraud Intelligence Pipeline",
+            "Production-grade hybrid pipeline combining Markdown AST Rules, SLR-IFM Log parsing, HDBSCAN clustering, Isolation Forest anomaly detection, LightGBM classification, and CoherenceBrain decisioning.",
+            json.dumps(nodes),
+            json.dumps(edges),
+            now,
+            now,
+        ),
+    )
+
+
+
+def update_pipeline_artifacts(pipeline_id: str, artifacts: list[dict[str, Any]]) -> None:
+    """Store generated model artifacts list in SQLite database record."""
+    now = datetime.now(timezone.utc).isoformat()
+    artifacts_json = json.dumps(artifacts)
+    with _lock, get_conn() as conn:
+        try:
+            conn.execute("ALTER TABLE pipelines ADD COLUMN artifacts_json TEXT")
+        except Exception:
+            pass
+        conn.execute(
+            "UPDATE pipelines SET artifacts_json = ?, updated_at = ? WHERE id = ?",
+            (artifacts_json, now, pipeline_id),
+        )
 
 
 def save_pipeline(
@@ -252,17 +389,43 @@ def save_pipeline(
     return get_pipeline(pipeline_id)  # type: ignore[return-value]
 
 
+def _clean_nodes(raw_nodes: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw_nodes, list):
+        return []
+    cleaned = []
+    for idx, n in enumerate(raw_nodes):
+        if not isinstance(n, dict):
+            continue
+        pos = n.get("position")
+        if not isinstance(pos, dict) or "x" not in pos or "y" not in pos or pos["x"] is None or pos["y"] is None:
+            pos = {"x": 50 + ((idx % 6) * 260), "y": 120 + ((idx // 6) * 160)}
+        cleaned.append({
+            "id": n.get("id") or f"node_{idx + 1}",
+            "type": n.get("type") or "pipeline",
+            "position": pos,
+            "data": n.get("data") if isinstance(n.get("data"), dict) else {"label": "Pipeline Node", "category": "input"},
+        })
+    return cleaned
+
+
 def list_pipelines() -> list[dict[str, Any]]:
     with _lock, get_conn() as conn:
+        try:
+            conn.execute("ALTER TABLE pipelines ADD COLUMN artifacts_json TEXT")
+        except Exception:
+            pass
         rows = conn.execute("SELECT * FROM pipelines ORDER BY updated_at DESC").fetchall()
         out: list[dict[str, Any]] = []
         for r in rows:
+            raw_nodes = json.loads(r["nodes_json"]) if r["nodes_json"] else []
+            arts_val = r["artifacts_json"] if "artifacts_json" in r.keys() else None
             out.append({
                 "id": r["id"],
                 "name": r["name"],
                 "description": r["description"],
-                "nodes": json.loads(r["nodes_json"]) if r["nodes_json"] else [],
+                "nodes": _clean_nodes(raw_nodes),
                 "edges": json.loads(r["edges_json"]) if r["edges_json"] else [],
+                "artifacts": json.loads(arts_val) if arts_val else [],
                 "created_at": r["created_at"],
                 "updated_at": r["updated_at"],
             })
@@ -271,18 +434,26 @@ def list_pipelines() -> list[dict[str, Any]]:
 
 def get_pipeline(pipeline_id: str) -> dict[str, Any] | None:
     with _lock, get_conn() as conn:
+        try:
+            conn.execute("ALTER TABLE pipelines ADD COLUMN artifacts_json TEXT")
+        except Exception:
+            pass
         row = conn.execute("SELECT * FROM pipelines WHERE id = ?", (pipeline_id,)).fetchone()
         if not row:
             return None
+        raw_nodes = json.loads(row["nodes_json"]) if row["nodes_json"] else []
+        arts_val = row["artifacts_json"] if "artifacts_json" in row.keys() else None
         return {
             "id": row["id"],
             "name": row["name"],
             "description": row["description"],
-            "nodes": json.loads(row["nodes_json"]) if row["nodes_json"] else [],
+            "nodes": _clean_nodes(raw_nodes),
             "edges": json.loads(row["edges_json"]) if row["edges_json"] else [],
+            "artifacts": json.loads(arts_val) if arts_val else [],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
+
 
 
 def delete_pipeline(pipeline_id: str) -> bool:

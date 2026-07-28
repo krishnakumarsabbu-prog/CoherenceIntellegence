@@ -12,18 +12,26 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, W
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from . import db
+from . import artifact_store, db
+
 from .algorithms import ALGORITHM_BY_ID, CATEGORIES, algorithms_by_category
 from .dataset import (
     SAMPLE_DATASET_ID,
     SAMPLE_MARKDOWN_DATASET_ID,
+    TRAIN_DATA_LOG_ID,
     get_sample_dataset,
     get_sample_markdown_dataset,
+    get_train_data_log_dataset,
     parse_csv,
+    parse_excel,
     parse_markdown_rules,
 )
+
 from .executor import run_pipeline
 from .recommendations import build_recommendations
+from .scoring_engine import score_transaction_payload
+from .artifact_store import list_pipeline_artifacts
+
 
 app = FastAPI(title="CoherenceIQ Backend", version="0.1.0")
 
@@ -71,6 +79,7 @@ class ExecuteRequest(BaseModel):
     pipeline_name: str
     pipeline: dict[str, Any]
     dataset_ref: str | None = None
+    custom_row: dict[str, Any] | None = None
 
 
 @app.get("/health")
@@ -128,6 +137,8 @@ class PipelineSaveRequest(BaseModel):
     description: str | None = None
     nodes: list[dict[str, Any]]
     edges: list[dict[str, Any]]
+    dataset_ref: str | None = None
+
 
 
 @app.get("/pipelines")
@@ -202,6 +213,82 @@ def save_db_pipeline(req: PipelineSaveRequest) -> dict[str, Any]:
     return {"status": "ok", "pipeline": saved}
 
 
+@app.post("/pipelines/train")
+@app.post("/api/pipelines/train")
+async def train_and_save_pipeline(req: PipelineSaveRequest) -> dict[str, Any]:
+    pipe_id = req.id or f"pipe-{uuid.uuid4().hex[:8]}"
+    saved = db.save_pipeline(
+        pipeline_id=pipe_id,
+        name=req.name,
+        nodes=req.nodes,
+        edges=req.edges,
+        description=req.description,
+    )
+    ds_ref = req.dataset_ref or "train-data-log-001"
+    rows = []
+    if ds_ref == "train-data-log-001":
+        ds = get_train_data_log_dataset()
+        rows = ds.get("rows", [])
+    else:
+        ds_obj = db.get_dataset(ds_ref)
+        if ds_obj and ds_obj.get("rows"):
+            rows = ds_obj["rows"]
+        else:
+            ds = get_train_data_log_dataset()
+            rows = ds.get("rows", [])
+    pipeline_dict = {"id": pipe_id, "name": req.name, "nodes": req.nodes, "edges": req.edges}
+    async for _ in run_pipeline(pipeline_dict, ds_ref, rows, None, None):
+        pass
+    artifacts = artifact_store.list_pipeline_artifacts(pipe_id)
+    return {
+        "status": "trained",
+        "pipeline_id": pipe_id,
+        "pipeline": saved,
+        "artifacts_count": len(artifacts),
+        "artifacts": [a["name"] for a in artifacts],
+        "message": f"Pipeline '{req.name}' trained! {len(artifacts)} model artifacts ready.",
+    }
+
+
+from fastapi.responses import StreamingResponse as _StreamingResponse
+
+@app.post("/pipelines/train-stream")
+@app.post("/api/pipelines/train-stream")
+async def train_stream(req: PipelineSaveRequest) -> _StreamingResponse:
+    pipe_id = req.id or f"pipe-{uuid.uuid4().hex[:8]}"
+    db.save_pipeline(pipeline_id=pipe_id, name=req.name, nodes=req.nodes, edges=req.edges, description=req.description)
+
+    ds_ref = req.dataset_ref or "train-data-log-001"
+    if ds_ref == "train-data-log-001":
+        ds = get_train_data_log_dataset()
+        rows = ds.get("rows", [])
+        ds_name = ds.get("name", "train_data.xlsx")
+    else:
+        ds_obj = db.get_dataset(ds_ref)
+        if ds_obj and ds_obj.get("rows"):
+            rows = ds_obj["rows"]
+            ds_name = ds_obj.get("name", ds_ref)
+        else:
+            ds = get_train_data_log_dataset()
+            rows = ds.get("rows", [])
+            ds_name = ds.get("name", "train_data.xlsx")
+
+    pipeline_dict = {"id": pipe_id, "name": req.name, "nodes": req.nodes, "edges": req.edges}
+
+    async def _generator():
+        yield json.dumps({"type": "start", "message": f"Starting training pipeline: {req.name}", "pipeline_id": pipe_id, "dataset": ds_name, "row_count": len(rows)}, ensure_ascii=False) + "\n"
+        async for event in run_pipeline(pipeline_dict, ds_ref, rows, None, None):
+            yield json.dumps(event, ensure_ascii=False) + "\n"
+        arts = artifact_store.list_pipeline_artifacts(pipe_id)
+        yield json.dumps({"type": "artifacts", "artifacts": [a["name"] for a in arts], "artifacts_count": len(arts)}, ensure_ascii=False) + "\n"
+
+    return _StreamingResponse(
+        _generator(),
+        media_type="application/x-ndjson; charset=utf-8",
+        headers={"X-Pipeline-Id": pipe_id, "Content-Type": "application/x-ndjson; charset=utf-8"},
+    )
+
+
 @app.get("/pipelines/{pipeline_id}")
 @app.get("/api/pipelines/{pipeline_id}")
 def get_db_pipeline(pipeline_id: str) -> dict[str, Any]:
@@ -218,6 +305,69 @@ def delete_db_pipeline(pipeline_id: str) -> dict[str, Any]:
     return {"status": "ok" if ok else "error", "deleted": ok}
 
 
+@app.get("/datasets/train-log-data")
+@app.get("/api/datasets/train-log-data")
+def train_log_dataset() -> dict[str, Any]:
+    ds = get_train_data_log_dataset()
+    return {
+        "id": ds["id"],
+        "name": ds["name"],
+        "source": ds["source"],
+        "row_count": ds["row_count"],
+        "extracted_feature_count": ds.get("extracted_feature_count", 0),
+    }
+
+
+@app.get("/datasets/{dataset_id}/schema")
+@app.get("/api/datasets/{dataset_id}/schema")
+def get_dataset_schema(dataset_id: str) -> dict[str, Any]:
+    if dataset_id in ("train-data-log-001", "train_data.xlsx", "default"):
+        ds = get_train_data_log_dataset()
+    else:
+        ds = db.get_dataset(dataset_id)
+        if not ds:
+            ds = get_train_data_log_dataset()
+
+    rows = ds.get("rows", [])
+    if not rows:
+        return {
+            "id": dataset_id,
+            "columns": [],
+            "numeric_columns": [],
+            "categorical_columns": [],
+            "target_columns": ["is_fraud"],
+        }
+
+    sample_row = rows[0]
+    all_cols = list(sample_row.keys())
+    numeric_cols = []
+    categorical_cols = []
+    target_cols = []
+
+    for k, v in sample_row.items():
+        if k in ("is_fraud", "fraud", "target", "label"):
+            target_cols.append(k)
+        elif isinstance(v, (int, float)) and not isinstance(v, bool):
+            numeric_cols.append(k)
+        else:
+            categorical_cols.append(k)
+
+    if not target_cols and "is_fraud" in all_cols:
+        target_cols.append("is_fraud")
+
+    return {
+        "id": dataset_id,
+        "name": ds.get("name", dataset_id),
+        "row_count": len(rows),
+        "total_columns_count": len(all_cols),
+        "columns": all_cols,
+        "numeric_columns": numeric_cols,
+        "categorical_columns": categorical_cols,
+        "target_columns": target_cols or ["is_fraud"],
+    }
+
+
+
 @app.post("/datasets/upload")
 @app.post("/api/datasets/upload")
 async def upload_dataset(file: UploadFile = File(...)) -> dict[str, Any]:
@@ -225,6 +375,8 @@ async def upload_dataset(file: UploadFile = File(...)) -> dict[str, Any]:
     filename = file.filename or "upload.csv"
     if filename.endswith(".md") or filename.endswith(".markdown"):
         ds = parse_markdown_rules(content, filename)
+    elif filename.endswith(".xlsx") or filename.endswith(".xls"):
+        ds = parse_excel(content, filename)
     else:
         ds = parse_csv(content, filename)
     ds_id = f"upload-{uuid.uuid4().hex[:8]}"
@@ -236,6 +388,7 @@ async def upload_dataset(file: UploadFile = File(...)) -> dict[str, Any]:
         datetime.now(timezone.utc).isoformat(),
         rows_json=json.dumps(ds["rows"]),
     )
+
     return {"id": ds_id, "name": ds["name"], "row_count": ds["row_count"], "source": ds["source"]}
 
 
@@ -255,7 +408,7 @@ async def execute_pipeline(pipeline_id: str, body: ExecuteRequest) -> dict[str, 
     )
     _replay[exec_id] = []
     _results_cache.pop(exec_id, None)
-    task = asyncio.create_task(_run_execution(exec_id, body.pipeline, body.dataset_ref))
+    task = asyncio.create_task(_run_execution(exec_id, body.pipeline, body.dataset_ref, body.custom_row))
     _tasks[exec_id] = task
     return {"execution_id": exec_id, "status": "queued", "started_at": started_at}
 
@@ -264,16 +417,22 @@ async def _run_execution(
     exec_id: str,
     pipeline: dict[str, Any],
     dataset_ref: str | None,
+    custom_row: dict[str, Any] | None = None,
 ) -> None:
     dataset_rows: list[dict[str, Any]] | None = None
-    if dataset_ref == SAMPLE_DATASET_ID:
+    if custom_row:
+        dataset_rows = [custom_row]
+    elif dataset_ref == SAMPLE_DATASET_ID:
         dataset_rows = get_sample_dataset()["rows"]
     elif dataset_ref == SAMPLE_MARKDOWN_DATASET_ID or dataset_ref == "sample-md-rules-001":
         dataset_rows = get_sample_markdown_dataset()["rows"]
+    elif dataset_ref == TRAIN_DATA_LOG_ID or dataset_ref == "train-data-log-001":
+        dataset_rows = get_train_data_log_dataset()["rows"]
     elif dataset_ref and dataset_ref.startswith("upload-"):
         ds = db.get_dataset(dataset_ref)
         if ds and ds.get("rows"):
             dataset_rows = ds["rows"]  # type: ignore[assignment]
+
 
     db.update_execution_status(exec_id, "running")
     try:
@@ -496,3 +655,30 @@ async def predict_pipeline(req: PredictRequest) -> dict[str, Any]:
         "execution_time_ms": elapsed_ms,
         "transaction_id": str(txn.get("transaction_id") or f"txn_live_{uuid.uuid4().hex[:6]}"),
     }
+
+
+class ScoringPayloadRequest(BaseModel):
+    pipeline_id: str | None = "default_pipeline"
+    transaction: dict[str, Any]
+    custom_rules: list[dict[str, Any]] | None = None
+
+
+@app.post("/api/pipeline/score")
+def score_transaction(req: ScoringPayloadRequest) -> dict[str, Any]:
+    """Bank-Grade Fraud Intelligence Scoring Endpoint.
+    
+    Executes rules -> checks hard block short-circuit -> evaluates ML models -> returns Coherence Brain explainable decision.
+    """
+    return score_transaction_payload(
+        txn=req.transaction,
+        pipeline_id=req.pipeline_id or "default_pipeline",
+        custom_rules=req.custom_rules,
+    )
+
+
+@app.get("/api/pipeline/artifacts/{pipeline_id}")
+def get_pipeline_artifacts(pipeline_id: str) -> dict[str, Any]:
+    """Retrieve saved model artifacts and versioned rule configs for a pipeline."""
+    artifacts = list_pipeline_artifacts(pipeline_id)
+    return {"pipeline_id": pipeline_id, "artifacts": artifacts}
+

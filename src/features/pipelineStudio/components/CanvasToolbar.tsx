@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
 import {
   useReactFlow,
   type ReactFlowInstance,
@@ -11,10 +10,10 @@ interface Props {
   rfInstance: ReactFlowInstance | null;
   onValidate: () => ValidationIssue[];
   onBackToDashboard?: () => void;
+  onTrainClick: (pipelineId: string, datasetRef: string) => void;
 }
 
-export default function CanvasToolbar({ rfInstance, onValidate, onBackToDashboard }: Props) {
-  const navigate = useNavigate();
+export default function CanvasToolbar({ rfInstance, onValidate, onBackToDashboard, onTrainClick }: Props) {
   const undo = usePipelineStore((s) => s.undo);
   const redo = usePipelineStore((s) => s.redo);
   const canUndo = usePipelineStore((s) => s.past.length > 0);
@@ -26,16 +25,58 @@ export default function CanvasToolbar({ rfInstance, onValidate, onBackToDashboar
   const activePipelineName = usePipelineStore((s) => s.activePipelineName);
   const pushToast = usePipelineStore((s) => s.pushToast);
   const nodeCount = usePipelineStore((s) => s.nodes.length);
-  const nodes = usePipelineStore((s) => s.nodes);
 
   const [saveOpen, setSaveOpen] = useState(false);
   const [name, setName] = useState(activePipelineName);
+
+  const activeDatasetRef = usePipelineStore((s) => s.activeDatasetRef);
+  const activeDatasetName = usePipelineStore((s) => s.activeDatasetName);
+  const setActiveDataset = usePipelineStore((s) => s.setActiveDataset);
+
+  const [uploadingDs, setUploadingDs] = useState(false);
+
+  const handleDatasetUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingDs(true);
+    pushToast("info", `Uploading dataset "${file.name}"…`);
+    const formData = new FormData();
+    formData.append("file", file);
+    try {
+      const res = await fetch("/api/datasets/upload", {
+        method: "POST",
+        body: formData,
+      });
+      const json = await res.json();
+      setActiveDataset(json.id, file.name);
+      pushToast("success", `Dataset "${file.name}" uploaded! Schema and features are now populated for all models.`);
+    } catch (err) {
+      console.error("Failed to upload dataset", err);
+      pushToast("error", "Failed to upload dataset file.");
+    } finally {
+      setUploadingDs(false);
+    }
+  };
 
   const doSave = () => {
     saveCurrent(name);
     setSaveOpen(false);
     pushToast("success", `Pipeline "${name.trim() || "Untitled pipeline"}" saved to Database.`);
   };
+
+  const doTrainAndSave = () => {
+    const issues = onValidate();
+    const errors = issues.filter((i) => i.level === "error");
+    if (errors.length > 0) {
+      pushToast("error", `Cannot train: ${errors.map((e) => e.message).join(" | ")}`);
+      return;
+    }
+    const activePipe = saveCurrent(name.trim() || activePipelineName);
+    setSaveOpen(false);
+    onTrainClick(activePipe.id, activeDatasetRef);
+  };
+
+
 
   const doValidate = () => {
     const issues = onValidate();
@@ -108,6 +149,37 @@ export default function CanvasToolbar({ rfInstance, onValidate, onBackToDashboar
 
       <Divider />
 
+      {/* Active Pipeline Dataset Selector & Uploader */}
+      <div className="flex items-center gap-1.5 bg-canvas-50/80 border border-canvas-200 px-2 py-1 rounded-md text-xs">
+        <span className="text-canvas-500 font-semibold uppercase text-[10px]">Dataset:</span>
+        <span className="font-bold text-indigo-900 truncate max-w-[130px]" title={activeDatasetName}>
+          📁 {activeDatasetName}
+        </span>
+        <button
+          onClick={() => setActiveDataset("train-data-log-001", "train_data.xlsx (Log Feed)")}
+          className={`px-1.5 py-0.5 rounded text-[10px] font-bold border transition-colors ${
+            activeDatasetRef === "train-data-log-001"
+              ? "bg-indigo-100 text-indigo-700 border-indigo-300"
+              : "border-canvas-200 text-canvas-600 hover:bg-canvas-100"
+          }`}
+          title="Use train_data.xlsx Log Feed"
+        >
+          Log Feed
+        </button>
+        <label className="cursor-pointer bg-white hover:bg-canvas-100 text-canvas-700 border border-canvas-200 px-2 py-0.5 rounded text-[10px] font-semibold flex items-center gap-1 shadow-2xs">
+          {uploadingDs ? "Uploading…" : "📥 Upload .xlsx"}
+          <input
+            type="file"
+            accept=".xlsx,.xls,.csv"
+            className="hidden"
+            onChange={handleDatasetUpload}
+          />
+        </label>
+      </div>
+
+      <Divider />
+
+
       <ToolGroup>
         <ToolButton title="Undo" onClick={undo} disabled={!canUndo}>
           <UndoIcon className="w-4 h-4" />
@@ -155,8 +227,14 @@ export default function CanvasToolbar({ rfInstance, onValidate, onBackToDashboar
             className="input text-xs py-1.5 w-40"
             placeholder="Pipeline name"
           />
-          <button onClick={doSave} className="btn-primary text-xs py-1.5">
-            Save
+          <button onClick={doSave} className="btn-ghost text-xs py-1.5 border border-canvas-200">
+            Save Only
+          </button>
+          <button
+            onClick={doTrainAndSave}
+            className="btn-primary text-xs py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 font-bold"
+          >
+            ⚡ Train & Save Models
           </button>
           <button
             onClick={() => setSaveOpen(false)}
@@ -166,41 +244,29 @@ export default function CanvasToolbar({ rfInstance, onValidate, onBackToDashboar
           </button>
         </div>
       ) : (
-        <button
-          onClick={() => {
-            setName(activePipelineName);
-            setSaveOpen(true);
-          }}
-          className="btn-primary text-xs"
-          title="Save pipeline"
-        >
-          <SaveIcon className="w-4 h-4" />
-          Save
-        </button>
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => {
+              setName(activePipelineName);
+              setSaveOpen(true);
+            }}
+            className="btn-ghost text-xs border border-canvas-200 font-medium"
+            title="Save pipeline definition"
+          >
+            <SaveIcon className="w-4 h-4" />
+            Save
+          </button>
+          <button
+            onClick={doTrainAndSave}
+            className="btn-primary text-xs bg-gradient-to-r from-blue-600 to-indigo-600 font-bold shadow-sm"
+            title="Save pipeline and fit model artifacts (.joblib)"
+          >
+            <SaveIcon className="w-4 h-4" />
+            ⚡ Train & Save (.joblib)
+          </button>
+        </div>
       )}
 
-      <Divider />
-      <button
-        onClick={() => {
-          const issues = onValidate();
-          const errors = issues.filter((i) => i.level === "error");
-          if (errors.length > 0) {
-            pushToast(
-              "error",
-              `Cannot run: ${errors.map((e) => e.message).join(" | ")}`,
-            );
-            return;
-          }
-          if (nodes.length > 0) saveCurrent(activePipelineName);
-          navigate("/execution-console");
-        }}
-        disabled={nodeCount === 0}
-        className="btn-primary text-xs disabled:opacity-50"
-        title="Run pipeline in the Execution Console"
-      >
-        <PlayIcon className="w-4 h-4" />
-        Run Pipeline
-      </button>
     </div>
   );
 }
@@ -309,12 +375,6 @@ function SaveIcon({ className }: { className?: string }) {
     </svg>
   );
 }
-function PlayIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <path d="M6 4l14 8-14 8V4z" />
-    </svg>
-  );
-}
 
 export { useReactFlow };
+

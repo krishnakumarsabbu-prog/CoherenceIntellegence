@@ -187,15 +187,27 @@ function NodeForm({
         />
       )}
 
+      {/* Dynamic Dataset Features & Parameters Section */}
+      {(data.category === "feature" || data.category === "preprocessing" || data.category === "detection") && (
+        <DynamicDatasetFeaturesSection nodeData={data} onChange={onChange} />
+      )}
+
       {/* Rule-to-Cluster Interactive Manager for Clustering nodes */}
       {(data.detectionSubType === "clustering" || (data.algorithmId && data.algorithmId.includes("cluster"))) && (
         <RuleClusterManagerSection nodeData={data} onChange={onChange} />
       )}
 
+
       {/* Markdown Rules (.md) Input Section */}
       {(data.defType === "input.markdown-rules" || data.category === "input") && (
         <MarkdownRuleSection nodeData={data} onChange={onChange} />
       )}
+
+      {/* Transaction Data Feed / train_data.xlsx Log Feed Input Section */}
+      {(data.defType === "input.transaction-feed" || data.category === "input") && (
+        <TransactionFeedSection nodeData={data} onChange={onChange} />
+      )}
+
 
       {/* Description */}
       <Section title="Description">
@@ -805,5 +817,287 @@ function RuleClusterManagerSection({
     </Section>
   );
 }
+
+function TransactionFeedSection({
+  nodeData,
+  onChange,
+}: {
+  nodeData: PipelineNodeData;
+  onChange: (patch: Partial<PipelineNodeData>) => void;
+}) {
+  const currentDs = (nodeData.params?.datasetRef as string) || "train-data-log-001";
+  const [uploading, setUploading] = useState(false);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    const formData = new FormData();
+    formData.append("file", file);
+    try {
+      const res = await fetch("/api/datasets/upload", {
+        method: "POST",
+        body: formData,
+      });
+      const json = await res.json();
+      onChange({
+        params: {
+          ...(nodeData.params || {}),
+          datasetRef: json.id,
+          fileName: file.name,
+        },
+      });
+    } catch (err) {
+      console.error("Failed to upload dataset file", err);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <Section title="Transaction Dataset Feed Source">
+      <div className="space-y-3">
+        <div className="p-3 rounded-lg bg-canvas-50 border border-canvas-200">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold text-canvas-800 flex items-center gap-1.5 truncate max-w-[170px]">
+              📊 {currentDs === "train-data-log-001" ? "train_data.xlsx (Log Feed)" : currentDs}
+            </span>
+          </div>
+
+          <div className="flex flex-col gap-2 mt-2">
+            <button
+              onClick={() =>
+                onChange({
+                  params: {
+                    ...(nodeData.params || {}),
+                    datasetRef: "train-data-log-001",
+                    fileName: "train_data.xlsx",
+                  },
+                })
+              }
+              className={`btn-ghost text-xs !py-1.5 font-bold border ${
+                currentDs === "train-data-log-001"
+                  ? "bg-indigo-50 text-indigo-700 border-indigo-300"
+                  : "border-canvas-200 text-canvas-700 hover:bg-canvas-100"
+              }`}
+            >
+              📑 Use train_data.xlsx Log Feed
+            </button>
+            <label className="btn-primary text-xs !py-1.5 cursor-pointer justify-center text-center">
+              {uploading ? "Uploading Excel/CSV…" : "📥 Upload custom .xlsx / .csv"}
+              <input
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                className="hidden"
+                onChange={handleFileUpload}
+              />
+            </label>
+          </div>
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+interface DatasetSchema {
+  id: string;
+  name: string;
+  row_count: number;
+  total_columns_count: number;
+  columns: string[];
+  numeric_columns: string[];
+  categorical_columns: string[];
+  target_columns: string[];
+}
+
+function useDatasetSchema(datasetRef = "train-data-log-001") {
+  const [schema, setSchema] = useState<DatasetSchema | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    setLoading(true);
+    fetch(`/api/datasets/${encodeURIComponent(datasetRef)}/schema`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (isMounted && data.columns) {
+          setSchema(data);
+        }
+      })
+      .catch((err) => console.error("Failed to load dataset schema", err))
+      .finally(() => {
+        if (isMounted) setLoading(false);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [datasetRef]);
+
+  return { schema, loading };
+}
+
+function DynamicDatasetFeaturesSection({
+  nodeData,
+  onChange,
+}: {
+  nodeData: PipelineNodeData;
+  onChange: (patch: Partial<PipelineNodeData>) => void;
+}) {
+  const activeDatasetRef = usePipelineStore((s) => s.activeDatasetRef);
+  const activeDatasetName = usePipelineStore((s) => s.activeDatasetName);
+  const datasetRef = (nodeData.params?.datasetRef as string) || activeDatasetRef || "train-data-log-001";
+  const { schema, loading } = useDatasetSchema(datasetRef);
+  const selectedFeatures = (nodeData.params?.selectedFeatures as string[]) || [];
+  const targetVar = (nodeData.params?.targetVariable as string) || "is_fraud";
+
+
+  const handleToggleFeature = (col: string) => {
+    const next = selectedFeatures.includes(col)
+      ? selectedFeatures.filter((c) => c !== col)
+      : [...selectedFeatures, col];
+    onChange({
+      params: {
+        ...(nodeData.params || {}),
+        selectedFeatures: next,
+      },
+    });
+  };
+
+  const handleSelectAll = () => {
+    if (!schema) return;
+    const all = schema.columns.filter((c) => c !== targetVar);
+    onChange({
+      params: {
+        ...(nodeData.params || {}),
+        selectedFeatures: all,
+      },
+    });
+  };
+
+  const handleClearAll = () => {
+    onChange({
+      params: {
+        ...(nodeData.params || {}),
+        selectedFeatures: [],
+      },
+    });
+  };
+
+  return (
+    <Section title="📊 Dynamic Dataset Features & Parameters">
+      <div className="space-y-2.5">
+        <div className="p-2.5 rounded-lg bg-indigo-50/70 border border-indigo-200/80 text-xs">
+          <div className="flex items-center justify-between font-semibold text-indigo-900 mb-1">
+            <span className="truncate max-w-[170px]" title={schema?.name || activeDatasetName}>
+              📁 {schema?.name || activeDatasetName}
+            </span>
+            <span className="bg-indigo-200/80 text-indigo-800 px-1.5 py-0.5 rounded text-[10px]">
+              {schema?.row_count || 500} records
+            </span>
+          </div>
+
+          <p className="text-[11px] text-indigo-700 leading-relaxed">
+            Detected {schema?.total_columns_count || 44} extracted features ({schema?.numeric_columns.length || 21} numeric, {schema?.categorical_columns.length || 23} categorical).
+          </p>
+        </div>
+
+        {/* Target Variable Selector */}
+        {nodeData.category === "detection" && (
+          <div>
+            <label className="block text-[11px] font-semibold text-canvas-700 uppercase mb-1">
+              Target Variable (Label)
+            </label>
+            <select
+              value={targetVar}
+              onChange={(e) =>
+                onChange({
+                  params: {
+                    ...(nodeData.params || {}),
+                    targetVariable: e.target.value,
+                  },
+                })
+              }
+              className="input text-xs font-semibold text-canvas-800 bg-white"
+            >
+              {(schema?.target_columns.length ? schema.target_columns : ["is_fraud"]).map((col) => (
+                <option key={col} value={col}>
+                  🎯 {col}
+                </option>
+              ))}
+              {(schema?.columns || [])
+                .filter((c) => !schema?.target_columns.includes(c))
+                .slice(0, 10)
+                .map((col) => (
+                  <option key={col} value={col}>
+                    {col}
+                  </option>
+                ))}
+            </select>
+          </div>
+        )}
+
+        {/* Dynamic Column Selector */}
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[11px] font-semibold text-canvas-700 uppercase">
+              Model Feature Input Selection
+            </span>
+            <div className="flex gap-1.5 text-[10px]">
+              <button
+                onClick={handleSelectAll}
+                className="text-accent-600 font-semibold hover:underline"
+              >
+                Select All
+              </button>
+              <span className="text-canvas-300">|</span>
+              <button
+                onClick={handleClearAll}
+                className="text-canvas-500 hover:underline"
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+
+          <div className="max-h-48 overflow-y-auto border border-canvas-200 rounded-md p-1.5 space-y-1 bg-canvas-50/50">
+            {loading ? (
+              <div className="p-2 text-center text-xs text-canvas-500">Loading dataset schema…</div>
+            ) : (schema?.columns || []).length === 0 ? (
+              <div className="p-2 text-center text-xs text-canvas-500">No columns found</div>
+            ) : (
+              (schema?.columns || []).map((col) => {
+                const checked = selectedFeatures.length === 0 || selectedFeatures.includes(col);
+                const isNumeric = schema?.numeric_columns.includes(col);
+                return (
+                  <label
+                    key={col}
+                    className="flex items-center justify-between p-1 rounded hover:bg-canvas-100 cursor-pointer text-xs"
+                  >
+                    <div className="flex items-center gap-1.5 truncate max-w-[190px]">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => handleToggleFeature(col)}
+                        className="rounded border-canvas-300 text-accent-600 focus:ring-accent-500"
+                      />
+                      <span className="font-mono text-[11px] text-canvas-800 truncate" title={col}>
+                        {col}
+                      </span>
+                    </div>
+                    <span className="text-[9px] px-1 rounded bg-canvas-200/70 text-canvas-600 font-semibold">
+                      {isNumeric ? "num" : "cat"}
+                    </span>
+                  </label>
+                );
+              })
+            )}
+          </div>
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+
 
 

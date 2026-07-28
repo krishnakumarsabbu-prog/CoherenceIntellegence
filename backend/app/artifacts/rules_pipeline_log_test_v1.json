@@ -1,0 +1,51 @@
+{
+  "pipeline_id": "pipeline_log_test",
+  "version": "v1",
+  "rules_count": 4,
+  "rules": [
+    {
+      "rule_id": "Rule R001: High Amount Threshold",
+      "description": "amount > 50000",
+      "parameter_count": 0,
+      "parameters": [
+        "Default_Parameter"
+      ],
+      "risk_level": "LOW",
+      "rule_type": "SOFT",
+      "weight": 10.0
+    },
+    {
+      "rule_id": "Rule R002: Velocity Surge",
+      "description": "tx_freq_1h > 8",
+      "parameter_count": 0,
+      "parameters": [
+        "Default_Parameter"
+      ],
+      "risk_level": "LOW",
+      "rule_type": "SOFT",
+      "weight": 10.0
+    },
+    {
+      "rule_id": "Rule R003: Impossible Geo Travel",
+      "description": "geo_velocity > 250",
+      "parameter_count": 0,
+      "parameters": [
+        "Default_Parameter"
+      ],
+      "risk_level": "LOW",
+      "rule_type": "SOFT",
+      "weight": 10.0
+    },
+    {
+      "rule_id": "Rule R099: Sanctioned Country Hard Block",
+      "description": "Immediate Hard Block for Sanctioned Entities",
+      "parameter_count": 0,
+      "parameters": [
+        "Default_Parameter"
+      ],
+      "risk_level": "CRITICAL",
+      "rule_type": "HARD",
+      "weight": 100.0
+    }
+  ]
+}

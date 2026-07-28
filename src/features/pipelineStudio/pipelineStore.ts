@@ -36,10 +36,15 @@ interface PipelineState {
   savedPipelines: SavedPipeline[];
   activePipelineId: string | null;
   activePipelineName: string;
+  activeDatasetRef: string;
+  activeDatasetName: string;
+
+  setActiveDataset: (ref: string, name: string) => void;
 
   // ui
   showMinimap: boolean;
   toasts: Toast[];
+
 
   // react-flow callbacks
   onNodesChange: (changes: NodeChange[]) => void;
@@ -70,7 +75,7 @@ interface PipelineState {
   canRedo: () => boolean;
 
   // saved pipelines
-  saveCurrent: (name: string) => void;
+  saveCurrent: (name: string) => SavedPipeline;
   loadPipeline: (id: string) => void;
   loadPipelineRecord: (pipe: { id: string; name: string; nodes: any[]; edges: any[] }) => void;
   fetchPipelinesFromDb: () => Promise<void>;
@@ -253,8 +258,25 @@ const MEGA_PIPELINE_RECORD: SavedPipeline = {
   ],
 };
 
+function sanitizeNode(n: any, idx: number): PipelineNode {
+  const posX = n.position && typeof n.position.x === "number" ? n.position.x : 50 + ((idx % 6) * 260);
+  const posY = n.position && typeof n.position.y === "number" ? n.position.y : 120 + (Math.floor(idx / 6) * 160);
+  return {
+    ...n,
+    id: n.id || `node_${idx + 1}`,
+    type: n.type || "pipeline",
+    position: { x: posX, y: posY },
+    data: n.data || { label: "Pipeline Node", category: "input" },
+  };
+}
+
+function sanitizeNodes(nodes: any[]): PipelineNode[] {
+  if (!Array.isArray(nodes)) return [];
+  return nodes.map((n, idx) => sanitizeNode(n, idx));
+}
+
 export const usePipelineStore = create<PipelineState>((set, get) => ({
-  nodes: MEGA_PIPELINE_RECORD.nodes,
+  nodes: sanitizeNodes(MEGA_PIPELINE_RECORD.nodes),
   edges: MEGA_PIPELINE_RECORD.edges,
   selectedNodeId: null,
   past: [],
@@ -262,8 +284,14 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
   savedPipelines: [MEGA_PIPELINE_RECORD],
   activePipelineId: MEGA_PIPELINE_RECORD.id,
   activePipelineName: MEGA_PIPELINE_RECORD.name,
+  activeDatasetRef: "train-data-log-001",
+  activeDatasetName: "train_data.xlsx (Log Feed)",
+
+  setActiveDataset: (ref, name) => set({ activeDatasetRef: ref, activeDatasetName: name }),
+
   showMinimap: true,
   toasts: [],
+
 
   onNodesChange: (changes) => {
     // Selection changes shouldn't pollute history; position drags should.
@@ -414,7 +442,7 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
     const previous = past[past.length - 1];
     const present: Snapshot = { nodes, edges };
     set({
-      nodes: previous.nodes,
+      nodes: sanitizeNodes(previous.nodes),
       edges: previous.edges,
       past: past.slice(0, -1),
       future: [...future, present].slice(-50),
@@ -428,7 +456,7 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
     const next = future[future.length - 1];
     const present: Snapshot = { nodes, edges };
     set({
-      nodes: next.nodes,
+      nodes: sanitizeNodes(next.nodes),
       edges: next.edges,
       past: [...past, present].slice(-50),
       future: future.slice(0, -1),
@@ -442,13 +470,14 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
   saveCurrent: (name) => {
     const trimmed = name.trim() || "Untitled pipeline";
     const { nodes, edges, activePipelineId, savedPipelines } = get();
+    const cleanNodes = sanitizeNodes(nodes);
     const now = Date.now();
     const id = activePipelineId || nextId("pipe");
 
     const record: SavedPipeline = {
       id,
       name: trimmed,
-      nodes,
+      nodes: cleanNodes,
       edges,
       createdAt: now,
     };
@@ -469,18 +498,19 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
       body: JSON.stringify({
         id,
         name: trimmed,
-        nodes,
+        nodes: cleanNodes,
         edges,
-        description: `Pipeline with ${nodes.length} nodes and ${edges.length} connections.`,
+        description: `Pipeline with ${cleanNodes.length} nodes and ${edges.length} connections.`,
       }),
     }).catch(() => {});
+    return record;
   },
 
   loadPipeline: (id) => {
     const rec = get().savedPipelines.find((p) => p.id === id);
     if (!rec) return;
     set({
-      nodes: rec.nodes.map((n) => ({ ...n })),
+      nodes: sanitizeNodes(rec.nodes),
       edges: rec.edges.map((e) => ({ ...e })),
       activePipelineId: rec.id,
       activePipelineName: rec.name,
@@ -492,7 +522,7 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
 
   loadPipelineRecord: (pipe: { id: string; name: string; nodes: any[]; edges: any[] }) => {
     set({
-      nodes: (pipe.nodes || []).map((n) => ({ ...n })),
+      nodes: sanitizeNodes(pipe.nodes || []),
       edges: (pipe.edges || []).map((e) => ({ ...e })),
       activePipelineId: pipe.id,
       activePipelineName: pipe.name,
@@ -510,7 +540,7 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
       const dbPipes: SavedPipeline[] = (data.pipelines || []).map((p: any) => ({
         id: p.id,
         name: p.name,
-        nodes: p.nodes || [],
+        nodes: sanitizeNodes(p.nodes || []),
         edges: p.edges || [],
         createdAt: p.created_at ? new Date(p.created_at).getTime() : Date.now(),
       }));
@@ -523,6 +553,7 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
       console.error("Failed to load pipelines from DB", err);
     }
   },
+
 
   deleteSavedPipeline: (id) => {
     set((s) => ({

@@ -18,12 +18,22 @@ from .dataset import (
     parse_csv,
     parse_markdown_rules,
 )
+from .markdown_rule_engine import (
+    evaluate_dataset_rules,
+    parse_markdown_rules_ast,
+)
+from .artifact_store import (
+    list_pipeline_artifacts,
+    save_model_artifact,
+    save_rule_config,
+)
 from .models_engine import (
     execute_detection_model,
     execute_feature_engineering,
     execute_preprocessing,
     execute_rule_clustering,
 )
+
 
 
 def _now_iso() -> str:
@@ -198,7 +208,9 @@ def _build_results(
     return {
         "summary": {
             "total_transactions": n,
+            "total_records_scored": n,
             "flagged": flagged_count,
+            "fraud_flagged_count": flagged_count,
             "true_positives": tp,
             "false_positives": fp,
             "false_negatives": fn,
@@ -383,11 +395,15 @@ async def run_pipeline(
     rules_summary: list[dict[str, Any]] = []
     rule_clusters: list[dict[str, Any]] = []
 
+    pipeline_id = str(pipeline.get("id", "default_pipeline"))
+    rules_ast: list[Any] = []
+
     if custom_md_text is not None:
         ds = parse_markdown_rules(custom_md_text, custom_md_name)
         rows = ds["rows"]
         rules_summary = ds.get("rules_summary", [])
-        md_msg = f"Dynamically extracted {ds.get('rules_count', 0)} rules & {len(ds.get('extracted_parameters', []))} parameter specs from uploaded '{custom_md_name}' into evaluation engine ({len(rows)} events)."
+        rules_ast = parse_markdown_rules_ast(custom_md_text)
+        md_msg = f"Dynamically extracted {len(rules_ast)} rules & {len(ds.get('extracted_parameters', []))} parameter specs from uploaded '{custom_md_name}' into rule engine ({len(rows)} events)."
     elif dataset_rows is not None:
         rows = dataset_rows
         md_msg = f"Loaded {len(rows)} events from dataset reference into analytical engine."
@@ -400,12 +416,50 @@ async def run_pipeline(
         rows = ds["rows"]
         md_msg = f"Loaded {len(rows)} transactions into analytical engine."
 
+    # If no rules were uploaded via markdown, generate default baseline rule ASTs
+    if not rules_ast:
+        default_md = """# Rule R001: High Amount Threshold
+Description: amount > 50000
+Risk Level: HIGH
+
+# Rule R002: Velocity Surge
+Description: tx_freq_1h > 8
+Risk Level: HIGH
+
+# Rule R003: Impossible Geo Travel
+Description: geo_velocity > 250
+Risk Level: HIGH
+
+# Rule R099: Sanctioned Country Hard Block
+Description: Immediate Hard Block for Sanctioned Entities
+Risk Level: CRITICAL
+"""
+        rules_ast = parse_markdown_rules_ast(default_md)
+        rules_summary = [
+            {
+                "rule_id": r.rule_id,
+                "description": r.description,
+                "parameter_count": r.parameter_count,
+                "parameters": r.parameters,
+                "risk_level": r.risk_level,
+                "rule_type": r.rule_type,
+                "weight": r.weight,
+            }
+            for r in rules_ast
+        ]
+
     df = pd.DataFrame(rows)
+    # Execute Rule Engine Node directly on training dataset to generate rule feature columns
+    current_df, rule_exec_summary = evaluate_dataset_rules(df, rules_ast)
+    
+    # Save rules configuration as versioned artifact
+    save_rule_config(pipeline_id, rules_summary, version="v1")
+
     detection_scores: dict[str, list[float]] = {}
     detection_nodes: list[dict[str, Any]] = []
     node_telemetry: dict[str, dict[str, Any]] = {}
-    current_df = df.copy()
     start = time.monotonic()
+
 
     yield {
         "type": "log",
@@ -504,7 +558,7 @@ async def run_pipeline(
 
         elif category == "preprocessing":
             pre_shape = current_df.shape
-            current_df = execute_preprocessing(current_df, node)
+            current_df = execute_preprocessing(current_df, node, pipeline_id=pipeline_id)
             post_shape = current_df.shape
             numeric_cols = current_df.select_dtypes(include=["number"]).columns.tolist()
             obj_cols = current_df.select_dtypes(include=["object"]).columns.tolist()
@@ -549,13 +603,15 @@ async def run_pipeline(
             }
 
         elif category == "feature":
-            current_df = execute_feature_engineering(current_df, node)
+            current_df = execute_feature_engineering(current_df, node, pipeline_id=pipeline_id)
             outflow_cols = list(current_df.columns)
             new_cols = [c for c in outflow_cols if c not in inflow_cols]
+            feature_list = list(current_df.columns)
 
             details.update({
                 "new_features_generated": new_cols if new_cols else ["tx_freq_1h", "geo_velocity", "amount_log"],
                 "selection_method": "Mutual Information Signal Maximization",
+                "all_features": feature_list,
             })
 
             yield {
@@ -565,10 +621,12 @@ async def run_pipeline(
                 "node_id": node["id"],
                 "node_status": "complete",
                 "timestamp": _now_iso(),
+                "extracted_features": feature_list,
+                "feature_count": len(feature_list),
             }
 
         elif category == "detection":
-            scores = execute_detection_model(current_df, node)
+            scores = execute_detection_model(current_df, node, pipeline_id=pipeline_id)
             detection_scores[node["id"]] = scores
             detection_nodes.append(node)
             algo_name = algo or label
@@ -576,7 +634,7 @@ async def run_pipeline(
             sub_type = str(node.get("data", {}).get("detectionSubType") or "").lower()
             det_clusters = algo_meta["clusters"]
             if ("cluster" in (algo or "").lower() or sub_type == "clustering") and rules_summary:
-                det_clusters = execute_rule_clustering(rules_summary, node)
+                det_clusters = execute_rule_clustering(rules_summary, node, pipeline_id=pipeline_id)
 
             score_stats = {
                 "min": round(float(min(scores)), 4) if scores else 0.0,
@@ -599,6 +657,8 @@ async def run_pipeline(
                 "node_id": node["id"],
                 "node_status": "complete",
                 "timestamp": _now_iso(),
+                "clusters": det_clusters,
+                "score_stats": score_stats,
             }
 
         else:
@@ -645,6 +705,16 @@ async def run_pipeline(
     results["node_telemetry"] = node_telemetry
     if rule_clusters:
         results["rule_clusters"] = rule_clusters
+
+    artifacts = list_pipeline_artifacts(pipeline_id)
+    try:
+        import db
+        db.update_pipeline_artifacts(pipeline_id, artifacts)
+    except Exception:
+        pass
+
+    results["artifacts"] = [a["name"] for a in artifacts]
+    results["artifacts_count"] = len(artifacts)
 
     yield {
         "type": "complete",
